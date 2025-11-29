@@ -1,0 +1,60 @@
+---
+title: "Color_Band_Weather_Station_Merging"
+output: html_document
+date: "2024-11-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The purpose of this Rmd is to merge the color band data that we have cleaned with the weather station data. Load in the libraries
+```{r}
+library(raster)
+library(sf)
+library(foreach)
+library(doParallel)
+library(stringr)
+library(dplyr)
+```
+
+Now let's load in the color band data
+```{r}
+b01_data <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/MOD09GA_Color_Band_Data/Cleaned_b01.rds")
+b03_data <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/MOD09GA_Color_Band_Data/Cleaned_b03.rds")
+b04_data <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/MOD09GA_Color_Band_Data/Cleaned_b04.rds")
+```
+
+
+Let's now merge these data sets together using Date, x, y, and grid.id. We have 100 rows with NAs in b01, b03, and b04 but there does seem to be some values in b03 and b04. This is in alignment with the files we are missing in our raw color band data, but it has been verified that the files are actually missing from the satellite data as I wrote code to check which dates are missing and tried to manually find them. 
+```{r}
+color_band <- merge(b01_data, b03_data, by = c("Date", "x", "y", "grid.id"), all = TRUE)
+
+#Now we merge with the b04 data
+color_band <- merge(color_band, b04_data, by = c("Date", "x", "y", "grid.id"), all = TRUE)
+
+#Let's make "Date" lowercase
+names(color_band)[1] <- "date"
+#Do a quick quality check of the data
+#color_band[is.na(color_band$b01),]
+```
+
+
+Now we will merge with the weather station data
+```{r}
+ws_data <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/RF_Station_Data_with_PSW.rds")
+
+#Try merging. Before merging, we have 18,082. After merging, we have 18,892 rows. With all = TRUE instead of all.x = TRUE, we get 19070 rows
+#We will use all.x to keep the weather station data more consistent
+ws_data <- merge(ws_data, color_band, by = c("date", "x", "y", "grid.id"), all.x = TRUE)
+```
+
+```{r}
+#saveRDS(ws_data, "/Volumes/Seagate Portable Drive/5.modeling_data/RF_Station_Data_PSW_Color_Band.rds")
+
+```
+
+
+
+
+

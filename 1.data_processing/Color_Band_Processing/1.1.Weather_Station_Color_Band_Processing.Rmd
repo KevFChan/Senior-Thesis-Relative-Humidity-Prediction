@@ -1,0 +1,214 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This Rmarkdown file is to create a loop that generates and cleans the color band data we have for the weather stations
+```{r}
+library(raster)
+library(sf)
+library(foreach)
+library(doParallel)
+library(stringr)
+library(dplyr)
+```
+
+Let's load in the shapefile arguments
+```{r}
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+
+#Get the CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+```
+
+
+Let's get the list of files for each
+```{r}
+b01_files <- list.files(path = "/Volumes/Seagate Portable Drive/0.raw_data/0.7.Color_band/b01", pattern = "b01", full.names = TRUE)
+b03_files <- list.files(path = "/Volumes/Seagate Portable Drive/0.raw_data/0.7.Color_band/b03", pattern = "b03", full.names = TRUE)
+b04_files <- list.files(path = "/Volumes/Seagate Portable Drive/0.raw_data/0.7.Color_band/b04", pattern = "b04", full.names = TRUE)
+
+#Define the function to get the grid_ids
+get_last_three <- function(number){
+  round(abs(number) %% 1000, 0)
+}
+
+#Define the function to get the closest x and y values
+closest_coords <- function(x1, y1, data2){
+  distances <- sqrt((data2$x - x1)^2 + (data2$y - y1)^2)
+  closest_index <- which.min(distances)
+  return(data2[closest_index, ])
+}
+
+#Set up the weather station x and y coordinates that we will use to get approximate values in our loop
+weather_stat <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/RF_Station_Data_with_PSW.rds")
+grids <- unique(weather_stat[, c(2, 4, 7, 8)])
+```
+
+
+
+
+We need to also get the date. Now we just need to turn this into a loop.
+```{r}
+cb_vars <- c("b01", "b03", "b04")
+cb_files <- list(b01_files, b03_files, b04_files)
+
+#Set up parallel backend
+cl <- makeCluster(detectCores() - 1)
+registerDoParallel(cl)
+
+for(i in 1:3){
+  #Get the color band data variable name and the relevant files
+  var_name <- cb_vars[i]
+  file_list <- cb_files[[i]]
+  
+  #Create the parallel processing loop
+  cb_data <- data.frame()
+  cb_data <- foreach(file = file_list, .combine = rbind) %dopar% {
+    #Load in the data, get the values and correctly scale them. Note, we do not mask because that introduces more NAs than we already have
+    raster_data <- raster::brick(file)
+    values <- data.frame(raster::values(raster_data))
+    values[values < -100] <- NA
+    values <- values * 0.0001
+    
+    #Get the coordinates and cbind them with the values
+    coords <- data.frame(raster::coordinates(raster_data))
+    raster_data <- cbind(coords, values)
+    
+    #Create a column to get the relevant grid ids
+    raster_data$grid.id <- paste0(get_last_three(raster_data$x), "_", get_last_three(raster_data$y))
+    
+    #Now we work on creating a date column. First use regular expressions to get the relevant substring and then split it.
+    date <- regmatches(file, regexpr("doy[0-9]{7}", file))
+    year <- as.numeric(substr(date, 4, 7))
+    doy <- as.numeric(substr(date, 8, 10))
+    
+    #Now we create the date column
+    raster_data$Date <- as.Date(doy - 1, origin = paste0(year, "-01-01"))
+    
+    #Now we need to get the closest values to the x and y values of the weather stations using Euclidean distance. According to ChatGPT,
+    #if these coordinates are in meters, then by this method we are about 300 meters away from the weather station x and y values
+    matched <- apply(grids, 1, function(row) {
+      #Get the x and y coordinates of the weather station grids
+      x1 <- as.numeric(row["x"])
+      y1 <- as.numeric(row["y"])
+      
+      #Now we find the point closest to x1 and y1 in raster_data
+      closest_point <- closest_coords(x1, y1, raster_data)
+      return(cbind(row, closest_point))
+    })
+    
+    #Now we combine the code and then filter to get the unique values since we are duplicating multiple rows
+    raster_data <- do.call(rbind, matched)
+    raster_data <- unique(raster_data[, c(2:6)])
+    
+    #Now we will replace the closest matches x and y values in our data frame with the weather station x and ys
+    raster_data[, c(1, 2, 4)] <- grids[, c(3, 4, 2)]
+    
+    #Change the name of the variable to a more succinct and correct color band variable. We will also get rid of the row labels
+    names(raster_data)[3] <- var_name
+    row.names(raster_data) <- NULL
+    
+    #Return the data set for it to be rbinded
+    return(raster_data)
+  }
+  
+  #Now we need to create a file path and save the data as an RDS file
+  save_path <- paste0("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/MOD09GA_Color_Band_Data/Cleaned_", var_name, ".rds")
+  saveRDS(cb_data, file = save_path)
+}
+
+#Stop cluster
+stopCluster(cl)
+```
+
+
+----------------------------------------------------------------------------------------------------------------
+
+Below is the development of the loop
+```{r}
+var_name <- "b01"
+file_name <- "/Volumes/Seagate Portable Drive/0.raw_data/0.7.Color_band/b01/MOD09GA.061_sur_refl_b01_1_doy2019001_aid0001.tif"
+raster_data <- raster::brick(file_name)
+
+#raster_data <- raster::projectRaster(raster_data, crs = crsSH)
+#temp <- raster::mask(raster_data, mask = ct_shp)
+
+#We need to also rescale the values
+values <- data.frame(raster::values(raster_data))
+values[values < -100] <- NA
+values <- values * 0.0001
+
+#temp_vals <- raster::values(temp)
+
+#So masking creates 2.5 times more NAs
+#sum(is.na(temp_vals))/sum(is.na(values))
+
+coords <- data.frame(raster::coordinates(raster_data))
+data <- cbind(coords, values)
+
+data$grid.id <- paste0(get_last_three(temp$x), "_", get_last_three(temp$y))
+
+#We now need to create a date column
+date <- regmatches(file_name, regexpr("doy[0-9]{7}", file_name))
+  
+#Get the year and the doy
+year <- as.numeric(substr(date, 4, 7))
+doy <- as.numeric(substr(date, 8, 10))
+
+#Now we get the date
+date <- as.Date(doy - 1, origin = paste0(year, "-01-01"))
+
+#Now we make the column
+data$Date <- date
+
+#Now we try to get the closest values to the x and y values using Euclidean distance. According to chat GPT, if these coordinates are in meters, then we are about 300 meters away
+
+matched <- apply(grids, 1, function(row) {
+  x1 <- as.numeric(row["x"])
+  y1 <- as.numeric(row["y"])
+  
+  # Find the closest point in data2
+  closest_point <- closest_coords(x1, y1, data)
+  
+  # Return a combined row with the original row and closest point info
+  return(cbind(row, closest_point))
+})
+
+data <- do.call(rbind, matched)
+data <- unique(data[, c(2:6)])
+
+#Now we will replace the x and y in closest_matches_df with the weather station x and ys
+data[, c(1, 2, 4)] <- grids[, c(3, 4, 2)]
+
+names(data)[3] <- var_name
+
+row.names(data) <- NULL
+
+```
+
+
+
+So it seems we at least get two out of the 10 weather stations to have values if we just do merge(grids, data, by = "grid.id"). Seems like the distance is always the same of about 327 meters. Could this mean that spatially, we need to shift the coordinates?
+```{r}
+weather_stat <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/RF_Station_Data_with_PSW.rds")
+grids <- unique(weather_stat[, c(2, 4, 7, 8)])
+
+#Only two weather stations have values
+#merge(grids, data, by = "grid.id")
+
+names(grids) <- c("era.id", "grid.id", "ws_x", "ws_y")
+grids_data <- cbind(grids[, c(3, 4)], closest_matches_df[, c(1, 2)])
+
+#Calculate the distance
+grids_data$distances <- sqrt((grids_data$ws_x - grids_data$x)^2 + (grids_data$ws_y - grids_data$y)^2)
+```
+
+
+

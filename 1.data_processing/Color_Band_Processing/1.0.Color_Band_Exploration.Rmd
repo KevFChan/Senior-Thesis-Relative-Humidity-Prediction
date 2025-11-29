@@ -1,0 +1,188 @@
+---
+title: "Color_Band_Exploration"
+output: html_document
+date: "2024-10-11"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This notebook is to understand what is going on in the color band data
+```{r}
+library(raster)
+library(sf)
+library(foreach)
+library(stringr)
+library(doParallel)
+library(lubridate)
+```
+
+
+```{r}
+test <- raster::brick("/Volumes/Seagate Portable Drive/0.raw_data/0.7.Color_band/b01/MOD09GA.061_sur_refl_b01_1_doy2019001_aid0001.tif")
+
+vals <- raster::getValues(test)
+```
+
+
+Let's take stock of what kind of files are in here
+```{r}
+red_col <- "/Volumes/Seagate Portable Drive/0.raw_data/0.7.Color_band/b01"
+red_files <- list.files(path = red_col, full.names = TRUE)
+
+blue_col <- "/Volumes/Seagate Portable Drive/0.raw_data/0.7.Color_band/b03"
+blue_files <- list.files(path = blue_col, full.names = TRUE)
+
+green_col <- "/Volumes/Seagate Portable Drive/0.raw_data/0.7.Color_band/b04"
+green_files <- list.files(path = green_col, full.names = TRUE)
+```
+
+So we see that we have daily color band data for each folder contains the data on a daily level
+```{r}
+for(i in red_files[1:10]){
+  print(i)
+}
+```
+
+
+
+And we see that each file has either less than it's supposed to or more than it's supposed to 
+```{r}
+length(red_files)
+length(blue_files)
+length(green_files)
+#For the years 2019, 2020 (leap year), 2021, 2022, and 2023
+sum(365, 366, 365, 365, 365)
+```
+
+Now let's get the date ranges so that we can check that we have all the dates or get which dates we're missing
+```{r}
+red_year_doy <- sub(".*doy([0-9]{7})_aid.*", "\\1", red_files)
+blue_year_doy <- sub(".*doy([0-9]{7})_aid.*", "\\1", blue_files)
+green_year_doy <- sub(".*doy([0-9]{7})_aid.*", "\\1", green_files)
+
+#Convert all the year_doys to Dates
+red_dates <- as.Date(red_year_doy, format = "%Y%j")
+blue_dates <- as.Date(blue_year_doy, format = "%Y%j")
+green_dates <- as.Date(green_year_doy, format = "%Y%j")
+```
+
+
+Now let's create the sequence of dates based on the data. We will do this for red first and we get 42 missing dates. 
+```{r}
+full_red <- seq(min(red_dates), max(red_dates), by = "day")
+
+#Get the missing dates
+missing_red <-setdiff(full_red, red_dates)
+
+missing_red_dates <- as.Date(missing_red, origin = "1970-01-01")
+
+#Let's format them back into the file name format so we can make checking easier
+year_red <- format(missing_red_dates, "%Y")
+doy_red <- format(missing_red_dates, "%j")
+
+year_doy_red <- paste0(year_red, doy_red)
+```
+
+
+Now let's do this for blue and green. We do for blue and we get 32 missing dates
+```{r}
+full_blue <- seq(min(blue_dates), max(blue_dates), by = "day")
+
+#Get the missing dates
+missing_blue <-setdiff(full_blue, blue_dates)
+
+missing_blue_dates <- as.Date(missing_blue, origin = "1970-01-01")
+
+year_blue <- format(missing_blue_dates, "%Y")
+doy_blue <- format(missing_blue_dates, "%j")
+
+year_doy_blue <- paste0(year_blue, doy_blue)
+```
+
+Now for green and we get 19 missing dates. 
+```{r}
+full_green <- seq(min(green_dates), max(green_dates), by = "day")
+
+#Get the missing dates
+missing_green <-setdiff(full_green, green_dates)
+
+missing_green_dates <- as.Date(missing_green, origin = "1970-01-01")
+
+year_green <- format(missing_green_dates, "%Y")
+doy_green <- format(missing_green_dates, "%j")
+
+year_doy_green <- paste0(year_green, doy_green)
+```
+
+
+
+Let's check if we can match our data together
+```{r}
+b01 <- raster::brick("/Volumes/Seagate Portable Drive/0.raw_data/0.7.Color_band/b03/MOD09GA.061_sur_refl_b03_1_doy2019103_aid0001.tif")
+
+weather_stat <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/RF_Station_Data_with_PSW.rds")
+
+#raster_data <- raster::projectRaster(b01, crs = crsSH)
+b01 <- raster::mask(b01, mask = ct_shp)
+
+values <- raster::values(b01)
+coords <- data.frame(raster::coordinates(b01))
+
+b01 <- cbind(coords, values)
+
+get_last_three <- function(number){
+  round(abs(number) %% 1000, 0)
+}
+
+b01$grid.id <- paste0(get_last_three(b01$x), "_", get_last_three(b01$y))
+```
+
+
+```{r}
+
+```
+
+
+
+We only need 10 unique longitude and latitudes
+```{r}
+grids <- unique(weather_stat[, c(2, 4, 7, 8)])
+
+merge(grids, b01, by = "grid.id")
+```
+
+
+
+Let's try to get the closest x and y values 
+```{r}
+closest_coords <- function(x1, y1, data2){
+  distances <- sqrt((data2$x - x1)^2 + (data2$y - y1)^2)
+  closest_index <- which.min(distances)
+  return(data2[closest_index, ])
+}
+
+closest_matches <- apply(grids, 1, function(row) {
+  x1 <- as.numeric(row["x"])
+  y1 <- as.numeric(row["y"])
+  
+  # Find the closest point in data2
+  closest_point <- closest_coords(x1, y1, temp)
+  
+  # Return a combined row with the original row and closest point info
+  return(cbind(row, closest_point))
+})
+
+closest_matches_df <- do.call(rbind, closest_matches)
+
+grids
+
+```
+
+```{r}
+b01_list <- list.files(path = "/Volumes/Seagate Portable Drive/0.raw_data/0.7.Color_band/b03", full.names = TRUE)
+head(b01_list)
+```
+

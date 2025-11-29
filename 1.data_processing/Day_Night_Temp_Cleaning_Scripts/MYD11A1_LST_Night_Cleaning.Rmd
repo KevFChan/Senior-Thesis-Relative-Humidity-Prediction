@@ -1,0 +1,148 @@
+---
+title: "MYD11A1LSTDayCleaning"
+output: html_document
+date: "2024-04-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+The purpose of this Rmd file is to convert the MYD11A1 land surface temperature night raster data into a CSV file format.
+
+Basically the same code as LST
+We set the working directory to be the same as the HPC cluster directory
+```{r}
+setwd("/Volumes/Seagate Portable Drive/0.raw_data")
+```
+
+```{r}
+library(raster)
+library(sf)
+library(doParallel)
+
+#Get the shapefile
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+
+#MOD11A1LSTDay.R
+
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+```
+
+```{r}
+#Define the directory and the pattern. We want day here so we will define accordingly
+raster_dir <- "/Volumes/Seagate Portable Drive/0.raw_data/0.2.2.LST_MYD11A1"
+
+#Define the pattern, here we only want the files with days
+pattern <- "Night"
+
+#Get the Night tif_files
+tif_files <- list.files(path = raster_dir, pattern = pattern, full.names = TRUE)
+```
+
+Now we want to separate the tif files into different years and process them separately. This seems to work quite well
+```{r}
+data_2019 <- list()
+data_2020 <- list()
+data_2021 <- list()
+data_2022 <- list()
+data_2023 <- list()
+
+for(file in tif_files){
+  if(grepl("doy2019", file)){
+    data_2019 <- append(data_2019, file)
+  }else if(grepl("doy2020", file)){
+    data_2020 <- append(data_2020, file)
+  }else if(grepl("doy2021", file)){
+    data_2021 <- append(data_2021, file)
+  }else if(grepl("doy2022", file)){
+    data_2022 <- append(data_2022, file)
+  }else if(grepl("doy2023", file)){
+    data_2023 <- append(data_2023, file)
+  }
+}
+```
+
+
+```{r}
+#Let us go over the processing for loop
+process_tif <- function(file_name){
+  raster_data <- raster::brick(file_name) #Load the tif file
+  raster_data <- raster::projectRaster(raster_data, crs = crsSH) #Project the raster to lonlat
+  raster_data <- raster::mask(raster_data, mask = ct_shp) #Mask the raster with the shapefile
+  
+  date_string <- sub(".+doy(\\d+)_aid.+\\.tif", "\\1", file_name) #Now extract the date and rename the data
+  date_string <- as.Date(date_string, format = "%Y%j")
+  
+  #Now we want to extract the values and bound the results together
+  raster_values <- data.frame(raster::values(raster_data))
+  raster_coords <- data.frame(raster::coordinates(raster_data))
+  
+  raster_data <- cbind(raster_coords, raster_values)
+  
+  #Rename the data
+  names(raster_data) <- c("Longitude", "Latitude", "Temp")
+  #Get the date
+  raster_data$Date <- date_string
+  
+  return(raster_data)
+}
+```
+
+
+```{r}
+# tif_2019 <- data.frame()
+# for(i in data_2019[1:3]){
+#   temp <- process_tif(i)
+#   tif_2019 <- rbind(tif_2019, temp)
+# }
+```
+
+```{r}
+#Now we try to create the parallel processing loops
+#Define the cores
+cl <- makeCluster(4)
+registerDoParallel(cl)
+
+#Apply the foreach loop to each year
+tif_2019 <- foreach(file = data_2019, .combine = "rbind") %dopar% {
+  process_tif(file)
+} 
+
+tif_2020 <- foreach(file = data_2020, .combine = "rbind") %dopar% {
+  process_tif(file)
+} 
+
+tif_2021 <- foreach(file = data_2021, .combine = "rbind") %dopar% {
+  process_tif(file)
+} 
+
+tif_2022 <- foreach(file = data_2022, .combine = "rbind") %dopar% {
+  process_tif(file)
+} 
+
+tif_2023 <- foreach(file = data_2023, .combine = "rbind") %dopar% {
+  process_tif(file)
+} 
+
+stopCluster(cl)
+```
+
+
+I guess we can just write the files as csvs
+```{r}
+write.csv(tif_2019, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MYD11A1Night2019.csv")
+write.csv(tif_2020, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MYD11A1Night2020.csv")
+write.csv(tif_2021, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MYD11A1Night2021.csv")
+write.csv(tif_2022, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MYD11A1Night2022.csv")
+write.csv(tif_2023, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MYD11A1Night2023.csv")
+```
+
