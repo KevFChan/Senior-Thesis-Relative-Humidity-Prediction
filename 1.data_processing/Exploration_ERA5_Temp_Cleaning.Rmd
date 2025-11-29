@@ -1,0 +1,244 @@
+---
+title: "ERA5TempCleaning.Rmd"
+output: html_document
+date: "2024-04-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We set the working directory to be the same as the HPC cluster directory
+```{r}
+setwd("/Volumes/Seagate Portable Drive/0.raw_data")
+```
+
+```{r}
+library(raster)
+library(sf)
+library(doParallel)
+library(stringr)
+
+#Get the shapefile
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+```
+
+
+Enter the ERA-5 folder, we will first deal with temperature
+```{r}
+raster_dir <- "/Volumes/Seagate Portable Drive/0.raw_data/0.3.ERA5"
+pattern_temp <- "temp"
+temp_files <- list.files(path = raster_dir, pattern = pattern_temp, full.names = TRUE)
+```
+
+We can still resample, so let's load in the LST raster data
+```{r}
+#We need to load in a sample LST file for resampling
+lst_sample <- "/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/MOD11A1.061_LST_Day_1km_doy2019028_aid0001.tif"
+lst_raster <- raster::brick(lst_sample)
+lst_raster <- raster::projectRaster(lst_raster, crs = crsSH) #Project the raster
+lst_raster <- raster::mask(lst_raster, mask = ct_shp) #Mask the raster
+```
+
+
+Define a function to run on each hour in the parallel loop
+```{r}
+process_era_5 <- function(raster_hour_data, year){
+  name_string <- names(raster_hour_data)
+  hour <- stringr::str_sub(name_string, -4, -1)
+  hour <- as.numeric(gsub("[^0-9]", "", hour))
+  
+  #Construct the data frame now
+  raster_values <- data.frame(raster::values(raster_hour_data))
+  raster_coords <- data.frame(raster::coordinates(raster_hour_data))
+  
+  #Get the raster data
+  raster_data <- cbind(raster_coords, raster_values)
+  
+  #Rename the data
+  names(raster_data) <- c("Longitude", "Latitude", "Temperature")
+  
+  #Create a column for the hour
+  raster_data$Hour <- hour
+  
+  #Calculate the date
+  start_of_year <- as.POSIXct(paste0(year, "-01-01 00:00:00"))
+  date_time <- start_of_year + as.difftime(hour - 1, units = "hours")
+  raster_data$Date <- as.Date(date_time)
+  
+  return(raster_data)
+}
+```
+
+
+Everything past this comment is not necessary and were previous attempts at developing a function to clean the data. 
+
+
+Let's do everything separately
+```{r}
+print(paste0("Currently processing: ", temp_files[1]))
+raster_file <- temp_files[1]
+#Load the data in and mask
+raster_data <- raster::brick(raster_file)
+raster_data <- raster::projectRaster(raster_data, crs = crsSH)
+raster_data <- raster::mask(raster_data, mask = ct_shp)
+
+#We now resample
+# temp <- raster::resample(temp, lst_raster, method = "bilinear")
+# temp <- raster::unstack(temp) #Now we unstack
+raster_data <- raster::resample(raster_data, lst_raster, method = "ngb")
+raster_data <- raster::unstack(raster_data) #Now we unstack
+
+date_string <- sub(".*/temp_(\\d+)\\.grib", "temp_\\1", raster_file)
+year_string <- sub("temp_(\\d+)", "\\1", date_string)
+
+#Now we want to run a for loop over the data, this will be parallel processed
+cl <- makeCluster(4)
+registerDoParallel(cl)
+
+yearly_data <- foreach(item = raster_data, .combine = "rbind") %dopar% {
+  process_era_5(item, year_string)
+}
+
+stopCluster(cl)
+
+process_era_5()
+
+string_dir <- paste0("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/", date_string, ".csv")
+write.csv(yearly_data, string_dir)
+```
+
+
+
+```{r}
+
+
+
+
+```
+
+
+
+
+
+
+
+```{r}
+print(paste0("Currently processing: ", temp_files[2]))
+raster_file <- temp_files[2]
+#Load the data in and mask
+raster_data <- raster::brick(raster_file)
+raster_data <- raster::projectRaster(raster_data, crs = crsSH)
+raster_data <- raster::mask(raster_data, mask = ct_shp)
+
+#We now resample
+# temp <- raster::resample(temp, lst_raster, method = "bilinear")
+# temp <- raster::unstack(temp) #Now we unstack
+raster_data <- raster::resample(raster_data, lst_raster, method = "ngb")
+raster_data <- raster::unstack(raster_data) #Now we unstack
+
+#Now we want to run a for loop over the data, this will be parallel processed
+cl <- makeCluster(4)
+registerDoParallel(cl)
+
+date_string <- sub(".*/temp_(\\d+)\\.grib", "temp_\\1", raster_file)
+year_string <- sub("temp_(\\d+)", "\\1", date_string)
+
+yearly_data <- foreach(item = raster_data, .combine = "rbind") %dopar% {
+  process_era_5(item, year_string)
+}
+
+stopCluster(cl)
+
+string_dir <- paste0("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/", date_string, ".csv")
+write.csv(yearly_data, string_dir)
+```
+
+
+
+```{r}
+#We need to loop through each of the temp_files
+for(temp_year in temp_files[1:5]){
+  print(paste0("Currently processing: ", temp_year))
+  #Load the data in and mask
+  raster_data <- raster::brick(temp_year)
+  raster_data <- raster::projectRaster(raster_data, crs = crsSH)
+  raster_data <- raster::mask(raster_data, mask = ct_shp)
+  
+  #We now resample
+  raster_data <- raster::resample(raster_data, lst_raster, method = "bilinear")
+  raster_data <- raster::unstack(raster_data) #Now we unstack
+  
+  year_data <- data.frame()
+  
+  #Now we want to run a for loop over the data, this will be parallel processed
+  cl <- makeCluster(4)
+  registerDoParallel(cl)
+  
+  date_string <- sub(".*/temp_(\\d+)\\.grib", "temp_\\1", temp_year)
+  year_string <- sub("temp_(\\d+)", "\\1", date_string)
+  
+  yearly_data <- foreach(item = raster_data[1:5], .combine = "rbind") %dopar% {
+    process_era_5(item, year_string)
+  }
+  
+  stopCluster(cl)
+  
+  string_dir <- paste0("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/", date_string, ".csv")
+  print(string_dir)
+  #write.csv(yearly_data, string_dir)
+}
+```
+
+
+
+
+
+
+```{r}
+era_2019_data <- data.frame()
+
+for(i in 1:10){
+  #Get the name with the hour
+  name_string <- names(temp[[i]])
+  hour <- str_sub(name_string, -4, -1)
+  
+  #Extract the numeric value
+  hour <- as.numeric(gsub("[^0-9]", "", hour))
+  
+  #Now that we have the correct hour, we can construct the data frame of values
+  raster_values <- data.frame(raster::values(temp[[i]]))
+  raster_coords <- data.frame(raster::coordinates(temp[[i]]))
+  
+  #Get the raster data
+  raster_data <- cbind(raster_coords, raster_values)
+  
+  #Rename the data
+  names(raster_data) <- c("Longitude", "Latitude", "Temperature")
+  
+  #Create a column for the hour
+  raster_data$Hour <- hour
+  
+  era_2019_data <- rbind(era_2019_data, raster_data)
+}
+
+era_2019_data[!is.na(era_2019_data$Temperature),]
+```
+
+
+
+
+
+
+
+
+

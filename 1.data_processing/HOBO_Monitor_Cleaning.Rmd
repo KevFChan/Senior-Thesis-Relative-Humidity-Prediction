@@ -1,0 +1,116 @@
+---
+title: "ExternalMonitoringCleaning"
+output: html_document
+date: "2024-04-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+hamden <- read.csv("/Volumes/Seagate Portable Drive/ModelingData/HamdenMonitor.csv")
+```
+
+Get rid of the index row, the host connected and the end of file
+```{r}
+hamden <- hamden[, -c(1,14,15)]
+```
+
+We will need to rename the columns
+```{r}
+names(hamden) <- c("DateTime", "Temperature", "MaxTemp", "MinTemp", "MeanTemp", "StdTemp", "RelativeHumidity", "MaxRH", "MinRH", "MeanRH", "StdRH", "DewPoint")
+```
+
+1245 values, but some are NAs
+```{r}
+nrow(hamden)
+```
+
+Got rid of 5 rows, now we have no NAs
+```{r}
+hamden <- hamden[!is.na(hamden$RelativeHumidity),]
+nrow(hamden)
+sum(is.na(hamden))
+```
+
+```{r}
+hamden
+```
+
+```{r}
+dates <- c()
+times <- c()
+
+for(i in 1:nrow(hamden)){
+  splitDatetime <- strsplit(hamden$DateTime, " ")
+  dates[i] <- splitDatetime[[i]][1]
+  times[i] <- splitDatetime[[i]][2]
+}
+```
+
+Now we column bind
+```{r}
+datetimes <- data.frame(cbind(dates, times))
+hamden <- cbind(datetimes, hamden)
+```
+
+Let's delete the DateTime column
+```{r}
+hamden <- hamden[, -3]
+```
+
+Now let's convert the date into a date type
+```{r}
+hamden$dates <- as.Date(hamden$dates, "%m/%d/%Y")
+```
+
+```{r}
+saveRDS(hamden, "/Volumes/Seagate Portable Drive/ModelingData/CleanHamdenValidation.RDS")
+```
+
+
+Now let's do the same for Morse college monitor
+```{r}
+morse <- read.csv("/Volumes/Seagate Portable Drive/ModelingData/MorseCollege.csv")
+morse <- morse[, -c(1,14,15)]
+```
+
+We will need to rename the columns
+```{r}
+names(morse) <- c("DateTime", "Temperature", "MaxTemp", "MinTemp", "MeanTemp", "StdTemp", "RelativeHumidity", "MaxRH", "MinRH", "MeanRH", "StdRH", "DewPoint")
+```
+
+1250 values, but some are NAs. We have reduced to 1241.
+```{r}
+nrow(morse)
+morse <- morse[!is.na(morse$RelativeHumidity), ]
+nrow(morse)
+sum(is.na(morse))
+```
+
+Get the dates and times
+```{r}
+dates <- c()
+times <- c()
+
+for(i in 1:nrow(morse)){
+  splitDatetime <- strsplit(morse$DateTime, " ")
+  dates[i] <- splitDatetime[[i]][1]
+  times[i] <- splitDatetime[[i]][2]
+}
+datetimes <- data.frame(cbind(dates, times))
+morse <- cbind(datetimes, morse)
+```
+
+Let's delete the DateTime column
+```{r}
+morse <- morse[, -3]
+```
+
+Now let's convert the date into a date type
+```{r}
+morse$dates <- as.Date(morse$dates, "%m/%d/%Y")
+saveRDS(morse, "/Volumes/Seagate Portable Drive/ModelingData/CleanMorseValidation.RDS")
+```
+
