@@ -1,0 +1,250 @@
+---
+title: "PSW_Cleaning_For_Merging"
+output: html_document
+date: "2024-10-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The goal of this R markdown file is to clean the PSW data into a format that allows merging with the random forests weather station data
+
+Load the libraries
+```{r}
+library(raster)
+library(sf)
+library(doParallel)
+library(tidyr)
+```
+
+Let's set up the shapefile to cast the PSW data correctly
+```{r}
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+
+#Get the CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+```
+
+
+Now let's define the function for the loop we will be using
+```{r}
+#Filename is the name of the specific month_year combo we are processing
+#var_name is the name of the variable (prcp_avg, srad_avg, etc.)
+process_psw <- function(filename, var_name){
+  #Create a notice of what we are processing
+  print(paste0("Currently processing: ", filename))
+  #Load the tif file, project the raster and mask the raster
+  raster_data <- raster::brick(filename)
+  raster_data <- raster::projectRaster(raster_data, crs = crsSH)
+  raster_data <- raster::mask(raster_data, mask = ct_shp)
+  
+  #Now we want to extract the values and coordinates to bind the two data variables together
+  raster_values <- data.frame(raster::values(raster_data))
+  raster_coords <- data.frame(raster::coordinates(raster_data))
+  
+  #Now we must do the following to the values:
+    #1) Turn the column names into actual dates using the filename which is i
+    #2) Apply the correct transformation on the values to scale them. Seems like for the ERA5 reanalysis data, we do not need to transform the values
+    #3) Cbind the result with raster_coords
+    #4) Pivot the dates 
+  
+  #Let's get the dates
+  month_year <- regmatches(filename, regexec("_([0-9]{2})_([0-9]{4})", filename))
+  month <- as.integer(month_year[[1]][2])
+  year <- as.integer(month_year[[1]][3])
+  
+  #Now we will get the sequence of dates for the columns. Note, we can actually get to the end date by adding the number of columns we have minus 1
+  #in our raster_values
+  start_date <- as.Date(paste(year, month, "01", sep = "-"))
+  end_date <- as.Date(start_date, format = "%Y-%m-%d") + ncol(raster_values) - 1
+  date_seq <- seq(start_date, end_date, by = "day")
+  
+  #Great, now we can use these to rename the raster_values columns
+  names(raster_values) <- date_seq
+  
+  #We have some negative values in the data and that doesn't make sense, so let's get rid of all the negative values and turn them into NAs once we pivot them
+  raster_values <- cbind(raster_coords, raster_values)
+  
+  #Now we pivot, note how we will need to supply the "values_to" argument later on
+  raster_values <- tidyr::pivot_longer(raster_values, cols = 3:ncol(raster_values), names_to = "Date", values_to = var_name)
+  
+  #And turn the dates into a date format
+  raster_values$Date <- as.Date(raster_values$Date)
+  
+  summary(raster_values[, 4])
+  
+  #And then deal with the negative values
+  if(!(var_name %in% c("u_wind", "v_wind"))){
+    raster_values[raster_values[, 4] < 0 & !is.na(raster_values[, 4]), 4] <- NA
+  }
+  
+  #Return the data frame
+  return(raster_values)
+}
+```
+
+Now let's create the loop using the basepath
+```{r}
+var_dir <- "/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind/u_wind"
+
+#Now we get the avg, min, and max files
+avg_files <- list.files(path = list.files(path = var_dir, pattern = "avg", full.names = TRUE), full.names = TRUE)
+min_files <- list.files(path = list.files(path = var_dir, pattern = "min", full.names = TRUE), full.names = TRUE)
+max_files <- list.files(path = list.files(path = var_dir, pattern = "max", full.names = TRUE), full.names = TRUE)
+
+#Combine them all into separate elements of a list
+sum_files <- list(avg_files, min_files, max_files)
+
+#Create a list of the years
+data_years <- c("2019", "2020", "2021", "2022", "2023")
+
+cl <- makeCluster(5)
+registerDoParallel(cl)
+
+#Go through the values
+for(file_set in sum_files){
+  #Grab the var name
+  var_name <- gsub("_(\\d{2}_\\d{4})\\.grib", "", basename(file_set[1]))
+  
+  #We can create a loop using the years
+  for(var_year in data_years){
+    #Define the files
+    agg_data <- grep(var_year, file_set, value = TRUE)
+    
+    #Now we create the data frame
+    data <- data.frame()
+    
+    #Run the for each loop
+    data <- foreach(filename = agg_data, .combine = "rbind") %dopar% {
+      process_psw(filename, var_name)
+    }
+    
+    #Now we need to save the file in the form of an RDS file
+    clean_file_path <- "/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/"
+    
+    #Create the file path
+    save_file_path <- paste0(clean_file_path, "ERA_", basename(var_dir), "/", var_name, "_", var_year, ".rds")
+    
+    #Check if the directory exists and create it if not
+    dir.create(dirname(save_file_path), recursive = TRUE, showWarnings = FALSE)
+    
+    #Now we save the file
+    saveRDS(data, file = save_file_path)
+  }
+}
+
+stopCluster(cl)
+```
+
+
+Test the values
+```{r}
+test <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_v_wind/vwind_max_2019.rds")
+test_2 <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_v_wind/vwind_avg_2019.rds")
+test_3 <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_v_wind/vwind_min_2019.rds")
+
+summary(test$vwind_max)
+summary(test_2$vwind_avg)
+summary(test_3$vwind_min)
+
+test
+
+unique(test$x)
+```
+
+_________________________________-
+
+Let's define the directory. We will go one weather variable at a time
+```{r}
+#The directory of the weather variable
+var_dir <- "/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind/precipitation"
+
+#Now we can get the avg, min, and max files
+avg_files <- list.files(path = list.files(path = var_dir, pattern = "avg", full.names = TRUE), full.names = TRUE)
+min_files <- list.files(path = list.files(path = var_dir, pattern = "min", full.names = TRUE), full.names = TRUE)
+max_files <- list.files(path = list.files(path = var_dir, pattern = "max", full.names = TRUE), full.names = TRUE)
+```
+
+Create separate lists of file names to get the dataframes grouped by year
+```{r}
+avg_2019 <- grep("2019", avg_files, value = TRUE)
+avg_2020 <- grep("2020", avg_files, value = TRUE)
+avg_2021 <- grep("2021", avg_files, value = TRUE)
+avg_2022 <- grep("2022", avg_files, value = TRUE)
+avg_2023 <- grep("2023", avg_files, value = TRUE)
+```
+
+
+Let's create the skeleton of the function. We note how total precipitation is in meters.
+```{r}
+data <- data.frame()
+for(i in avg_2019[1:3]){
+  
+  #Create a notice of what we are processing
+  print(paste0("Currently processing: ", i))
+  #Load the tif file, project the raster and mask the raster
+  raster_data <- raster::brick(i)
+  raster_data <- raster::projectRaster(raster_data, crs = crsSH)
+  raster_data <- raster::mask(raster_data, mask = ct_shp)
+  
+  #Now we want to extract the values and coordinates to bind the two data variables together
+  raster_values <- data.frame(raster::values(raster_data))
+  raster_coords <- data.frame(raster::coordinates(raster_data))
+  
+  #Now we must do the following to the values:
+    #1) Turn the column names into actual dates using the filename which is i
+    #2) Apply the correct transformation on the values to scale them. Seems like for the ERA5 reanalysis data, we do not need to transform the values
+    #3) Cbind the result with raster_coords
+    #4) Pivot the dates 
+  
+  #Let's get the dates
+  month_year <- regmatches(i, regexec("_([0-9]{2})_([0-9]{4})", i))
+  month <- as.integer(month_year[[1]][2])
+  year <- as.integer(month_year[[1]][3])
+  
+  #Now we will get the sequence of dates for the columns. Note, we can actually get to the end date by adding the number of columns we have minus 1
+  #in our raster_values
+  start_date <- as.Date(paste(year, month, "01", sep = "-"))
+  end_date <- as.Date(start_date, format = "%Y-%m-%d") + ncol(raster_values) - 1
+  date_seq <- seq(start_date, end_date, by = "day")
+  
+  #Great, now we can use these to rename the raster_values columns
+  names(raster_values) <- date_seq
+  
+  #We have some negative values in the data and that doesn't make sense, so let's get rid of all the negative values and turn them into NAs once we pivot them
+  raster_values <- cbind(raster_coords, raster_values)
+  
+  #Now we pivot, note how we will need to supply the "values_to" argument later on
+  raster_values <- tidyr::pivot_longer(raster_values, cols = 3:ncol(raster_values), names_to = "Date", values_to = "prcp_avg")
+  
+  #And turn the dates into a date format
+  raster_values$Date <- as.Date(raster_values$Date)
+  
+  #And then deal with the negative values
+  raster_values[raster_values[, 4] < 0 & !is.na(raster_values[, 4]), 4] <- NA
+  
+  #Now we rbind
+  data <- rbind(data, raster_values)
+}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

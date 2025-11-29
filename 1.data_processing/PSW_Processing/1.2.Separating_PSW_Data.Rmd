@@ -1,0 +1,67 @@
+---
+title: "Separating_PSW_Data"
+output: html_document
+date: "2024-10-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The purpose of this Rmd file is to separate out the different PSW files into a min folder, max folder, and avg folder
+```{r}
+#Let's first get the overall PSW folder we're working with
+PSW_path <- "/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind"
+
+psw_folders <- list.files(path = PSW_path, full.names = TRUE)
+```
+
+Now in each folder, let us create three separate files and put the correct files in each one
+```{r}
+for(folder in psw_folders){
+  #Grab the folder path basename to use when naming the file
+  name <- basename(folder)
+  
+  folder_min <- paste0(folder, "/", name, "_min")
+  folder_max <- paste0(folder, "/", name, "_max")
+  folder_avg <- paste0(folder, "/", name, "_avg")
+  
+  #Now we create the folders
+  dir.create(folder_min, recursive = TRUE)
+  dir.create(folder_max, recursive = TRUE)
+  dir.create(folder_avg, recursive = TRUE)
+  
+  #Now we will create the list of files we want moved
+  files_min <- list.files(path = folder, pattern = "min", full.names = TRUE)
+  files_max <- list.files(path = folder, pattern = "max", full.names = TRUE)
+  files_avg <- list.files(path = folder, pattern = "avg", full.names = TRUE)
+  
+  #Now we will place them in the files
+  for(file in files_min){
+    #Construct the new file path
+    new_file_path <- file.path(folder_min, basename(file))
+    #Move the file
+    file.rename(file, new_file_path)
+  }
+  
+  for(file in files_max){
+    #Construct the new file path
+    new_file_path <- file.path(folder_max, basename(file))
+    #Move the file
+    file.rename(file, new_file_path)
+  }
+  
+  for(file in files_avg){
+    #Construct the new file path
+    new_file_path <- file.path(folder_avg, basename(file))
+    #Move the file
+    file.rename(file, new_file_path)
+  }
+}
+```
+
+
+
+
+
+

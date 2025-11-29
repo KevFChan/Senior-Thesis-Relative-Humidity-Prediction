@@ -1,0 +1,138 @@
+---
+title: "PSW_ERA_Merging"
+output: html_document
+date: "2024-10-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The goal of this R markdown file will be to create data frames from the cleaned PSW data that will eventually be merged with the weather station data frames
+```{r}
+library(raster)
+library(sf)
+library(foreach)
+library(doParallel)
+library(stringr)
+library(dplyr)
+```
+
+
+```{r}
+prcp_files <- list.files(path = "/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_precipitation", full.names = TRUE)
+srad_files <- list.files(path = "/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_solar_radiation", full.names = TRUE)
+srad_down_files <- list.files(path = "/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_solar_radiation_down", full.names = TRUE)
+uwind_files <- list.files(path = "/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_u_wind", full.names = TRUE)
+vwind_files <- list.files(path = "/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_v_wind", full.names = TRUE)
+```
+
+Now lets get the grid ids and merge them with the PSW data
+```{r}
+grid_ids <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/8.2.ERA_grid_resample_MODIS_grids_withLonLat.rds")
+
+#Grab columns 5 to 9 since we only want the ERA_ids
+grid_ids <- grid_ids[, 5:9]
+
+#Deduplicate
+grid_ids <- unique(grid_ids)
+```
+
+
+Now we want to create a processing loop
+```{r}
+psw_list <- list(prcp_files, srad_files, srad_down_files, uwind_files, vwind_files)
+
+for(psw_var in psw_list){
+  avg_files <- grep("avg", psw_var, value = TRUE)
+  min_files <- grep("min", psw_var, value = TRUE)
+  max_files <- grep("max", psw_var, value = TRUE)
+  
+  #Now we combine them all
+  psw_avg <- do.call(rbind, lapply(avg_files, readRDS))
+  psw_min <- do.call(rbind, lapply(min_files, readRDS))
+  psw_max <- do.call(rbind, lapply(max_files, readRDS))
+  
+  #Rename the first two columns
+  names(psw_avg)[1:2] <- c("lon", "lat")
+  names(psw_min)[1:2] <- c("lon", "lat")
+  names(psw_max)[1:2] <- c("lon", "lat")
+  
+  #Round longitude and latitude to the ones place
+  psw_avg[, 1:2] <- round(psw_avg[, 1:2], 1)
+  psw_min[, 1:2] <- round(psw_min[, 1:2], 1)
+  psw_max[, 1:2] <- round(psw_max[, 1:2], 1)
+  
+  #Now we will merge these with the grid ids 
+  psw_avg <- merge(psw_avg, grid_ids, by = c("lon", "lat"), all.x = TRUE)
+  psw_min <- merge(psw_min, grid_ids, by = c("lon", "lat"), all.x = TRUE)
+  psw_max <- merge(psw_max, grid_ids, by = c("lon", "lat"), all.x = TRUE)
+  
+  psw_avg_substring <- gsub(".*/|_[0-9]{4}\\.rds", "", avg_files)[1]
+  psw_min_substring <- gsub(".*/|_[0-9]{4}\\.rds", "", min_files)[1]
+  psw_max_substring <- gsub(".*/|_[0-9]{4}\\.rds", "", max_files)[1]
+  
+  #Now we can save the files
+  avg_file_path <- paste0("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/", psw_avg_substring, "_ids.RDS")
+  min_file_path <- paste0("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/", psw_min_substring, "_ids.RDS")
+  max_file_path <- paste0("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/", psw_max_substring, "_ids.RDS")
+  
+  saveRDS(psw_avg, file = avg_file_path)
+  saveRDS(psw_min, file = min_file_path)
+  saveRDS(psw_max, file = max_file_path)
+}
+```
+
+
+
+
+Below this is the code used to develop the above loop
+
+Now lets get the grid ids and merge them with the prcp_avg data
+```{r}
+grid_ids <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/8.2.ERA_grid_resample_MODIS_grids_withLonLat.rds")
+
+#Grab columns 5 to 9 since we only want the ERA_ids
+grid_ids <- grid_ids[, 5:9]
+
+#Deduplicate
+grid_ids <- unique(grid_ids)
+
+#Now we merge
+prcp_avg_2019 <- merge(prcp_avg_2019, grid_ids, by = c("lon", "lat"), all.x = TRUE)
+
+#Check to see if we have all the dates
+all_dates <- seq(from = min(prcp_avg_2019$Date), to = max(prcp_avg_2019$Date), by = "day")
+
+missing_dates <- setdiff(all_dates, prcp_avg_2019$Date)
+
+#Let's order by longitude and latitude and then date. We also filter by Nas in the weather variable, but for simplicity, we should not do this
+prcp_avg_2019 <- prcp_avg_2019 %>%
+  group_by(lon, lat, Date)
+
+#There are 400 unique lon and lat combinations so the number of rows perfectly corresponds to the number of days in the year
+#unique(prcp_avg_2019[, 1:2])
+```
+
+
+Let's try merging this with the weather station data frame. Seems like the merge worked. Now we need to create the pipeline
+```{r}
+data <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/RFData.rds")
+names(data)[2] <- "Date"
+
+#Now merge the prcp data 
+temp <- merge(data, prcp_avg_2019, by = c("era.id", "Date"))
+names(data)
+names(prcp_avg_2019)
+unique(data$era.id)
+unique(temp$era.id)
+```
+
+
+
+
+
+
+
+
+

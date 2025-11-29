@@ -1,0 +1,223 @@
+---
+title: "PSW_Processing_Full_Loop"
+output: html_document
+date: "2024-10-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This notebook will contain the code for cleaning the precipitation, wind speed, and solar radiation data. We will do so by taking the averages, minimums, and maximums of each variable per day. Load the libraries
+```{r}
+library(raster)
+library(sf)
+library(foreach)
+library(stringr)
+library(doParallel)
+library(lubridate)
+```
+
+Create a function to call later on. 
+```{r}
+#Takes in the grib file name, the number of days that month has, the date of the first day of the month, and the variable we are currently separating for. We want the number of days the month has for our for loop, the date of the first month to label each raster layer, and the variable we are separating for to grab the correct variable
+psw_processing_month <- function(file_name, month_days, date, var){
+  #Load in the file and grab the names of each of the layers
+  raster_data <- raster::brick(file_name)
+  layer_names <- names(raster_data)
+  
+  #Now let's grab the components given the var variable
+  var_layers <- grep(var, layer_names)
+  
+  #Now let's create raster stacks for each component
+  var_stack <- stack(raster_data[[var_layers]])
+  
+  #Create three stacks to store daily average, min, and max rasters for each variable
+  daily_avg_stack <- raster::stack()
+  daily_min_stack <- raster::stack()
+  daily_max_stack <- raster::stack()
+  
+  #Create the list of dates
+  dates <- seq.Date(as.Date(date), by = "day", length.out = month_days)
+  
+  #Now we loop through each day
+  results <- list()
+  results <- foreach(day = 1:month_days, .combine = "c") %dopar% {
+    start_idx <- ((day - 1) * 24) + 1
+    end_idx <- day * 24
+    
+    # Extract hourly layers for the day
+    hourly_layers <- var_stack[[start_idx:end_idx]]
+    
+    # Calculate the daily average, min, and max
+    daily_avg <- calc(hourly_layers, fun = mean)
+    daily_min <- calc(hourly_layers, fun = min)
+    daily_max <- calc(hourly_layers, fun = max)
+    
+    # Name each of these raster layers with the correct dates
+    names(daily_avg) <- dates[day]
+    names(daily_min) <- dates[day]  
+    names(daily_max) <- dates[day]
+    
+    #Create a list to return
+    ret_list <- list()
+    
+    ret_list[1] <- daily_avg
+    ret_list[2] <- daily_min
+    ret_list[3] <- daily_max
+    
+    ret_list
+  }
+  
+  #Now we need to extract each element and place it in the correct stack
+  for(i in 1:month_days){
+    #i is for the avg, i+1 is for the min, and i+2 is for the max
+    index <- (i-1) * 3 + 1
+    daily_avg_stack <- stack(daily_avg_stack, results[[index]])
+    daily_min_stack <- stack(daily_min_stack, results[[index + 1]])
+    daily_max_stack <- stack(daily_max_stack, results[[index + 2]])
+  }
+  
+  #Now we need to create a list to return the stacks
+  return(list(daily_avg = daily_avg_stack,
+              daily_min = daily_min_stack,
+              daily_max = daily_max_stack))
+  
+}
+```
+
+Validated the data processing
+```{r}
+# test <- raster::brick("/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind/u_wind/uwind_avg_01_2019.grib")
+# names(test)
+# 
+# vals <- raster::getValues(test[[1]])
+# vals_real <- raster::getValues(ret_list[[1]])
+```
+
+
+
+Create a big loop
+```{r}
+psw_folder <- "/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind_old"
+psw_files <- list.files(path = psw_folder, full.names = TRUE)
+```
+
+We will create a loop that goes through each of the files
+```{r}
+#Insert parallel stuff here
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+
+for(psw_folder in psw_files[2:5]){
+  #Call the folder
+  folder_path <- psw_folder
+  grib_files <- list.files(path = folder_path, pattern = "\\.grib$", full.names = TRUE)
+  
+  for(file in grib_files){
+    #Extract a string that contains the month and year. For naming the future files.
+    month_year_str <- str_extract(file, "\\d{2}_\\d{4}")
+    
+    #Calculate how many days are in that specific month
+    split_values <- str_split(month_year_str, "_", simplify = TRUE)
+    month <- as.integer(split_values[1])
+    year <- as.integer(split_values[2])
+    date <- make_date(year, month, 1)
+    num_days <- days_in_month(date)
+    
+    #Let's loop through all of the variables for each month
+    variables <- c("10.metre.u.wind.component", "10.metre.v.wind.component", "Total.precipitation", "Surface.solar.radiation..W.s.m.2..", "Surface.solar.radiation.downwards..W.s.m.2..")
+    #The abbreviated version of the variables for creating the file names
+    file_folders <- c("u_wind", "v_wind", "precipitation", "solar_radiation", "solar_radiation_down")
+    #Now we get the short hand
+    short_file_names <- c("uwind", "vwind", "prcp", "srad", "sraddown")
+    
+    #The loop
+    for(i in 1:length(variables)){
+      #Run the function here to get the full data for a singular month
+      var <- variables[i]
+      data_list <- psw_processing_month(file, num_days, date, var)
+      
+      #Now we extract the avg, min, and max statistics
+      daily_average <- data_list$daily_avg
+      daily_minimum <- data_list$daily_min
+      daily_maximum <- data_list$daily_max
+      
+      #Get the corresponding folder name and the shortened name for the file
+      folder <- file_folders[i]
+      file_prefix <- short_file_names[i]
+      
+      #Now we create the file names for grib
+      avg_file <- paste0("/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind/", folder, "/", file_prefix, "_", "avg", "_", month_year_str, ".grib")
+      min_file <- paste0("/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind/", folder, "/", file_prefix, "_", "min", "_", month_year_str, ".grib")
+      max_file <- paste0("/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind/", folder, "/", file_prefix, "_", "max", "_", month_year_str, ".grib")
+      
+      #Now we write the files as gribs
+      writeRaster(daily_average, filename = avg_file, format = "GRIB", overwrite = TRUE)
+      writeRaster(daily_minimum, filename = min_file, format = "GRIB", overwrite = TRUE)
+      writeRaster(daily_maximum, filename = max_file, format = "GRIB", overwrite = TRUE)
+      
+      print(paste0(month_year_str, " for ", file_folders[i], " is done processing"))
+    }
+  }
+}
+
+stopCluster(cl)
+```
+
+
+We will need to write code later to organize the avgs, mins, and maxs. We will also need to redefine the dates for each of the grib names
+
+
+In case we make any edits we can't undo
+```{r}
+#Takes in the grib file name, the number of days that month has, and the variable we are currently separating for
+# psw_processing_month <- function(file_name, month_days, date, var){
+#   #Load in the file and grab the names of each of the layers
+#   raster_data <- raster::brick(file_name)
+#   layer_names <- names(raster_data)
+#   
+#   #Now let's grab the components given the var variable
+#   var_layers <- grep(var, layer_names)
+#   
+#   #Now let's create raster stacks for each component
+#   var_stack <- stack(raster_data[[var_layers]])
+#   
+#   #Create three stacks to store daily average, min, and max rasters for each variable
+#   daily_avg_stack <- raster::stack()
+#   daily_min_stack <- raster::stack()
+#   daily_max_stack <- raster::stack()
+#   
+#   #Create the list of dates
+#   dates <- seq.Date(as.Date(date), by = "day", length.out = month_days)
+#   
+#   #Now we loop through each day
+#   for(day in 1:month_days){
+#     start_idx <- ((day - 1)*24) + 1
+#     end_idx <- day*24
+#     
+#     hourly_layers <- var_stack[[start_idx:end_idx]]
+#     
+#     #Calculate the daily average, min, and max
+#     daily_avg <- calc(hourly_layers, fun = mean)
+#     daily_min <- calc(hourly_layers, fun = min)
+#     daily_max <- calc(hourly_layers, fun = max)
+#     
+#     #Name each of these raster layers with the correct dates
+#     names(daily_avg) <- dates[day]
+#     names(daily_min) <- dates[day]
+#     names(daily_max) <- dates[day]
+#     
+#     #Now we stack the daily statistics
+#     daily_avg_stack <- stack(daily_avg_stack, daily_avg)
+#     daily_min_stack <- stack(daily_min_stack, daily_min)
+#     daily_max_stack <- stack(daily_max_stack, daily_max)
+#   }
+#   
+#   #Now we need to create a list to return the stacks
+#   return(list(daily_avg = daily_avg_stack,
+#               daily_min = daily_min_stack,
+#               daily_max = daily_max_stack))
+#   
+# }
+```

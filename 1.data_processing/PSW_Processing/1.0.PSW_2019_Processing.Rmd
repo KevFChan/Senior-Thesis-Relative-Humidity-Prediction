@@ -1,0 +1,160 @@
+---
+title: "ExtraDataProcessing"
+output: html_document
+date: "2024-07-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir = "/Volumes/Seagate Portable Drive/0.raw_data/")
+```
+
+
+This will be a template for how to clean data. We first import the libraries
+```{r}
+library(raster)
+library(sf)
+library(foreach)
+library(stringr)
+library(doParallel)
+```
+
+Get the shapefile of interest
+```{r}
+#Get the shapefile
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/0.raw_data/0.tl_2020_us_state/tl_2020_us_state.shp")
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+#Get the lon-lat crs of the Connecticut shapefile
+lon_lat_crs <- st_crs(ct_shp)
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+```
+
+
+Load in the data
+```{r}
+file <- "/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind_old/2019Data/01_2019.grib"
+raster_data <- raster::brick(file)
+layer_names <- names(raster_data)
+```
+
+
+Let's extract the components for wind, precipitation, and solar radiation
+```{r}
+u_wind_layers <- grep("10.metre.u.wind.component", layer_names)
+v_wind_layers <- grep("10.metre.v.wind.component", layer_names)
+
+precipitation_layers <- grep("Total.precipitation", layer_names)
+
+solar_radiation_layers <- grep("Surface.solar.radiation..W.s.m.2..", layer_names)
+solar_radiation_down_layers <- grep("Surface.solar.radiation.downwards..W.s.m.2..", layer_names)
+```
+
+
+Now let's create raster stacks for each component
+```{r}
+u_wind_stack <- stack(raster_data[[u_wind_layers]])
+v_wind_stack <- stack(raster_data[[v_wind_layers]])
+
+precipitation_stack <- stack(raster_data[[precipitation_layers]])
+
+solar_radiation_stack <- stack(raster_data[[solar_radiation_layers]])
+solar_radiation_down_stack <- stack(raster_data[[solar_radiation_down_layers]])
+```
+
+
+Create a list to store daily average, min, and max rasters
+```{r}
+daily_avg <- list()
+daily_min <- list()
+daily_max <- list()
+
+#Now we create a loop to go through each day
+for(day in 1:9){
+  #Extract the 24 hourly layers for the current day
+  print(day)
+  #Errors at day = 17
+  #Define the start and end indices
+  start_idx <- ((day-1)*24) + 1
+  end_idx <- day*24
+  
+  hourly_layers <- solar_radiation_stack[[start_idx:end_idx]]
+  
+  #Calculate the daily average, min, and max
+  daily_avg[[day]]  <- calc(hourly_layers, fun = mean)
+  daily_min[[day]] <- calc(hourly_layers, fun = min)
+  daily_max[[day]] <- calc(hourly_layers, fun = max)
+}
+```
+
+
+
+
+
+
+# Combine the daily rasters into RasterStacks
+avg_stack <- stack(daily_avg)
+min_stack <- stack(daily_min)
+max_stack <- stack(daily_max)
+
+# Save the new RasterStacks (optional)
+writeRaster(avg_stack, 'daily_avg_stack.tif', format = 'GTiff')
+writeRaster(min_stack, 'daily_min_stack.tif', format = 'GTiff')
+writeRaster(max_stack, 'daily_max_stack.tif', format = 'GTiff')
+
+
+
+
+Extract the values and the coordinates
+```{r}
+raster_values <- raster::getValues(u_wind_stack)
+```
+
+
+
+Extract the month and year of the file
+```{r}
+date_part <- sub(".*\\/(\\d{2}_\\d{4})\\.grib", "\\1", file)
+date_part <- paste0(date_part, "_")
+
+year <- sub(".*_(\\d{4})\\.grib", "\\1", file)
+year <- paste0(year, "/")
+```
+
+
+```{r}
+#I want to name them with 01_2019_
+writeRaster(u_wind_stack, paste0("/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind/u_wind/", year, date_part, "u_wind.tif"), format = "GTiff", overwrite = TRUE)
+writeRaster(v_wind_stack, "v_wind.tif", format = "GTiff", overwrite = TRUE)
+writeRaster(precipitation_stack, "precipitation.tif", format = "GTiff", overwrite = TRUE)
+writeRaster(solar_radiation_stack, "solar_radiation.tif", format = "GTiff", overwrite = TRUE)
+writeRaster(solar_radiation_downwards_stack, "solar_radiation_downwards.tif", format = "GTiff", overwrite = TRUE)
+```
+
+
+writeRaster(u_wind_stack, "u_wind.tif", format = "GTiff", overwrite = TRUE)
+writeRaster(v_wind_stack, "v_wind.tif", format = "GTiff", overwrite = TRUE)
+writeRaster(precipitation_stack, "precipitation.tif", format = "GTiff", overwrite = TRUE)
+writeRaster(solar_radiation_stack, "solar_radiation.tif", format = "GTiff", overwrite = TRUE)
+writeRaster(solar_radiation_downwards_stack, "solar_radiation_downwards.tif", format = "GTiff", overwrite = TRUE)
+
+
+Set the working directory and get a list of files
+```{r}
+setwd("/Volumes/Seagate Portable Drive/0.raw_data/0.8.PrecipitationSolarWind/2019Data")
+files <- list.files(pattern = "*.grib")
+
+#Load the raster data from each file
+raster_list <- lapply(files, brick)
+
+#Merge the raster data
+merged_raster <- do.call(merge, raster_list)
+```
+
+
+
+
+
+
+
+

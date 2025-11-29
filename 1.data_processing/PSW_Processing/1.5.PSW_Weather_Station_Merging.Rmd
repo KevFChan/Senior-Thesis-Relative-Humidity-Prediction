@@ -1,0 +1,137 @@
+---
+title: "PSW_Weather_Station_Merging"
+output: html_document
+date: "2024-10-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This Rmd file is for the purpose of merging the PSW data with the weather station data
+```{r}
+library(raster)
+library(sf)
+library(foreach)
+library(doParallel)
+library(stringr)
+library(dplyr)
+```
+
+Let's load all of the RDS files into this environment
+```{r}
+prcp_avg <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/prcp_avg_ids.RDS")
+prcp_max <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/prcp_max_ids.RDS")
+prcp_min <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/prcp_min_ids.RDS")
+
+srad_avg <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/srad_avg_ids.RDS")
+srad_max <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/srad_max_ids.RDS")
+srad_min <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/srad_min_ids.RDS")
+
+srad_down_avg <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/sraddown_avg_ids.RDS")
+srad_down_max <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/sraddown_max_ids.RDS")
+srad_down_min <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/sraddown_min_ids.RDS")
+
+uwind_avg <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/uwind_avg_ids.RDS")
+uwind_max <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/uwind_max_ids.RDS")
+uwind_min <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/uwind_min_ids.RDS")
+
+vwind_avg <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/vwind_avg_ids.RDS")
+vwind_max <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/vwind_max_ids.RDS")
+vwind_min <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/ERA_PSW/vwind_min_ids.RDS")
+```
+
+
+Now let's start merging the data frames together into one data frame that we can then merge with the weather station data
+```{r}
+psw_data <- merge(prcp_avg, prcp_max, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_1 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, prcp_min, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_2 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, srad_avg, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_3 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, srad_max, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_4 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, srad_min, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_5 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, srad_down_avg, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_6 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, srad_down_max, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_7 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, srad_down_min, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_8 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, uwind_avg, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_9 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, uwind_max, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_10 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, uwind_min, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_11 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, vwind_avg, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_12 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, vwind_max, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_13 <- colSums(is.na(psw_data))
+
+psw_data <- merge(psw_data, vwind_min, by = c("lon", "lat", "Date", "era.id", "era.y", "era.x"), all = TRUE)
+merge_14 <- colSums(is.na(psw_data))
+
+colSums(is.na(prcp_max))
+colSums(is.na(psw_data))
+#Okay, so the additional NAs are from the additional variables, not from the spatial coordinate columns
+```
+
+Let's save the RDS data while we can
+```{r}
+#saveRDS(psw_data, "/Volumes/Seagate Portable Drive/5.modeling_data/PSW_Complete_Cleaned.rds")
+```
+
+
+Now let's merge with the station data. First we do some exploration with the 
+```{r}
+rf_data <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/RFData.rds")
+colSums(is.na(rf_data))
+```
+
+
+Let's try merging and seeing what happens
+```{r}
+names(rf_data)
+names(psw_data)
+```
+
+
+We want to merge the PSW data by date and era.id, so we don't need lon, lat, era.y and era.x
+```{r}
+psw_data <- psw_data %>%
+  select(-lon, -lat, -era.y, -era.x)
+
+#And rename the date column from "Date" to "date"
+names(psw_data)[1] <- "date"
+
+#Now we merge
+before_merge <- colSums(is.na(rf_data))
+rf_data <- merge(rf_data, psw_data, by = c("date", "era.id"), all.x = TRUE)
+after_merge <- colSums(is.na(rf_data))
+```
+
+Let's save this
+```{r}
+#saveRDS(rf_data, "/Volumes/Seagate Portable Drive/5.modeling_data/RF_Station_Data_with_PSW.rds")
+```
+
+
+
+
+
+
