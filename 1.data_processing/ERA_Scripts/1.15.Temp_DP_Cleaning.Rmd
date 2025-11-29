@@ -1,0 +1,115 @@
+---
+title: "ERAStepOneProcessing"
+output: html_document
+date: "2024-05-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This notebook will process all of the dewpoint and temperature data, delete the dates, and remove the NAs
+```{r}
+dp_2019 <- read.csv("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/Dewpoint/era5dp_2019.csv")
+dp_2020 <- read.csv("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/Dewpoint/era5dp_2020.csv")
+dp_2021 <- read.csv("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/Dewpoint/era5DewPoint_dp_2021.csv")
+dp_2022 <- read.csv("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/Dewpoint/era5DewPoint_dp_2022.csv")
+dp_2023 <- read.csv("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/Dewpoint/era5DewPoint_dp_2023.csv")
+```
+
+Get rid of the first column, convert the date into datetime, and then delete the last date. Save the as RDS
+```{r}
+dp_2019 <- dp_2019[, -1]
+dp_2019$Date <- as.Date(dp_2019$Date, "%Y-%m-%d")
+summary(dp_2019$Date)
+saveRDS(dp_2019, "/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/CleanedDewpoint/dp_2019.RDS")
+dp_2019 <- 0
+```
+
+```{r}
+dp_2020 <- dp_2020[, -1]
+dp_2020$Date <- as.Date(dp_2020$Date, "%Y-%m-%d")
+summary(dp_2020$Date)
+saveRDS(dp_2020, "/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/CleanedDewpoint/dp_2020.RDS")
+dp_2020 <- 0
+```
+
+
+```{r}
+dp_2021 <- dp_2021[, -1]
+dp_2021$Date <- as.Date(dp_2021$Date, "%Y-%m-%d")
+summary(dp_2021$Date)
+saveRDS(dp_2021, "/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/CleanedDewpoint/dp_2021.RDS")
+dp_2021 <- 0
+```
+
+```{r}
+dp_2022 <- dp_2022[, -1]
+dp_2022$Date <- as.Date(dp_2022$Date, "%Y-%m-%d")
+summary(dp_2022$Date)
+saveRDS(dp_2022, "/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/CleanedDewpoint/dp_2022.RDS")
+dp_2022 <- 0
+```
+
+```{r}
+dp_2023 <- dp_2023[, -1]
+dp_2023$Date <- as.Date(dp_2023$Date, "%Y-%m-%d")
+summary(dp_2023$Date)
+saveRDS(dp_2023, "/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/CleanedDewpoint/dp_2023.RDS")
+dp_2023 <- 0
+```
+
+
+```{r}
+temp_2019 <- read.csv("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/Temperature/era5temp_2019.csv")
+temp_2019 <- temp_2019[, -1]
+temp_2019$Date <- as.Date(temp_2019$Date, "%Y-%m-%d")
+summary(temp_2019$Date)
+saveRDS(temp_2019,"/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/CleanedTemperature/temp_2019.RDS")
+temp_2019 <- 0
+gc()
+```
+
+```{r}
+temp_2020 <- read.csv("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/Temperature/era5temp_2020.csv")
+temp_2020 <- temp_2020[, -1]
+temp_2020$Date <- as.Date(temp_2020$Date, "%Y-%m-%d")
+summary(temp_2020$Date)
+saveRDS(temp_2020, "/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/CleanedTemperature/temp_2020.RDS")
+temp_2020 <- 0
+gc()
+```
+
+```{r}
+temp_2021 <- read.csv("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/Temperature/era5temp_2021.csv")
+temp_2021 <- temp_2021[, -1]
+temp_2021$Date <- as.Date(temp_2021$Date, "%Y-%m-%d")
+summary(temp_2021$Date)
+saveRDS(temp_2021, "/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/CleanedTemperature/temp_2021.RDS")
+temp_2021 <- 0
+gc()
+```
+
+
+```{r}
+temp_2022 <- read.csv("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/Temperature/era5temp_2022.csv")
+temp_2022 <- temp_2022[, -1]
+temp_2022$Date <- as.Date(temp_2022$Date, "%Y-%m-%d")
+summary(temp_2022$Date)
+saveRDS(temp_2022, "/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/CleanedTemperature/temp_2022.RDS")
+temp_2022 <- 0
+gc()
+```
+
+
+```{r}
+temp_2023 <- read.csv("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/Temperature/era5temp_2023.csv")
+temp_2023 <- temp_2023[, -1]
+temp_2023$Date <- as.Date(temp_2023$Date, "%Y-%m-%d")
+summary(temp_2023$Date)
+saveRDS(temp_2023, "/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step1.5/CleanedTemperature/temp_2023.RDS")
+temp_2023 <- 0
+gc()
+```
+
+
