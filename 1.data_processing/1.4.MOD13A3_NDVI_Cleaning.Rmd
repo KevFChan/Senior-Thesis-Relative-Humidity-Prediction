@@ -1,0 +1,161 @@
+---
+title: "Greeness"
+output: html_document
+date: "2024-04-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The purpose of this Rmd file is to take the NDVI raster data and convert it into CSV file format
+
+We set the working directory to be the same as the HPC cluster directory
+```{r}
+setwd("/Volumes/Seagate Portable Drive/0.raw_data")
+```
+
+```{r}
+library(raster)
+library(sf)
+library(doParallel)
+
+#Get the shapefile
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+```
+
+Split the data into EVI, NDVI, and VI
+```{r}
+#Define the directory and the pattern. We want day here so we will define accordingly
+raster_dir <- "/Volumes/Seagate Portable Drive/0.raw_data/0.5.Greenness"
+
+#Define the pattern, we will do NDVI first
+pattern_ndvi <- "NDVI"
+
+#Get the tif files
+tif_files_ndvi <- list.files(path = raster_dir, pattern = pattern_ndvi, full.names = TRUE)
+```
+
+Now we want to separate the tif files into different years and process them separately. This seems to work quite well
+```{r}
+data_2019 <- list()
+data_2020 <- list()
+data_2021 <- list()
+data_2022 <- list()
+data_2023 <- list()
+
+for(file in tif_files_ndvi){
+  if(grepl("doy2019", file)){
+    data_2019 <- append(data_2019, file)
+  }else if(grepl("doy2020", file)){
+    data_2020 <- append(data_2020, file)
+  }else if(grepl("doy2021", file)){
+    data_2021 <- append(data_2021, file)
+  }else if(grepl("doy2022", file)){
+    data_2022 <- append(data_2022, file)
+  }else if(grepl("doy2023", file)){
+    data_2023 <- append(data_2023, file)
+  }
+}
+```
+
+
+```{r}
+#We need to load in a sample LST file for resampling
+lst_sample <- "/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/MOD11A1.061_LST_Day_1km_doy2019028_aid0001.tif"
+lst_raster <- raster::brick(lst_sample)
+lst_raster <- raster::projectRaster(lst_raster, crs = crsSH) #Project the raster
+lst_raster <- raster::mask(lst_raster, mask = ct_shp) #Mask the raster
+
+
+#Let us go over the processing for loop
+process_ndvi_tif <- function(file_name){
+  raster_data <- raster::brick(file_name) #Load the tif file
+  raster_data <- raster::projectRaster(raster_data, crs = crsSH) #Project the raster to lonlat
+  raster_data <- raster::mask(raster_data, mask = ct_shp) #Mask the raster with the shapefile
+  
+  date_string <- sub(".+doy(\\d+)_aid.+\\.tif", "\\1", file_name) #Now extract the date and rename the data
+  date_string <- as.Date(date_string, format = "%Y%j")
+  
+  #Now we perform resampling
+  raster_data <- raster::resample(raster_data, lst_raster, method = "bilinear")
+  
+  #Now we want to extract the values and bound the results together
+  raster_values <- data.frame(raster::values(raster_data)* 0.0001)
+  raster_coords <- data.frame(raster::coordinates(raster_data))
+  
+  raster_data <- cbind(raster_coords, raster_values)
+  
+  #Rename the data
+  names(raster_data) <- c("Longitude", "Latitude", pattern_ndvi)
+  #Get the date
+  raster_data$Date <- date_string
+  
+  return(raster_data)
+}
+```
+
+For some reason, parallel processing isn't working so we'll just create a bunch of for loops
+```{r}
+tif_2019 <- data.frame()
+for(i in data_2019){
+  temp <- process_ndvi_tif(i)
+  tif_2019 <- rbind(tif_2019, temp)
+}
+
+tif_2020 <- data.frame()
+for(i in data_2020){
+  temp <- process_ndvi_tif(i)
+  tif_2020 <- rbind(tif_2020, temp)
+}
+
+tif_2021 <- data.frame()
+for(i in data_2021){
+  temp <- process_ndvi_tif(i)
+  tif_2021 <- rbind(tif_2021, temp)
+}
+
+tif_2022 <- data.frame()
+for(i in data_2022){
+  temp <- process_ndvi_tif(i)
+  tif_2022 <- rbind(tif_2022, temp)
+}
+
+tif_2023 <- data.frame()
+for(i in data_2023){
+  temp <- process_ndvi_tif(i)
+  tif_2023 <- rbind(tif_2023, temp)
+}
+```
+
+
+Now let's rbind
+```{r}
+ndvi_data <- rbind(tif_2019, tif_2020, tif_2021, tif_2022, tif_2023)
+
+#Let's fix the missing data code
+ndvi_data <- ndvi_data %>%
+  mutate(NDVI = ifelse(NDVI == -0.03, NA, NDVI))
+
+summary(ndvi_data$NDVI)
+```
+
+
+Now we save
+```{r}
+saveRDS(ndvi_data, "/Volumes/Seagate Portable Drive/3.clean_data/NDVI_Data.RDS")
+
+
+```
+
+
+

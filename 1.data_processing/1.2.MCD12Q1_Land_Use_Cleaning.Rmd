@@ -1,0 +1,221 @@
+---
+title: "MCD12Q1LandUseCleaning"
+output: html_document
+date: "2024-04-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This file cleans the Land Use data and turns the raster data into CSV files. Note that we only have 2019-2022 and not 2023. So we will use the 2022 values for 2023.
+
+We set the working directory to be the same as the HPC cluster directory
+```{r}
+setwd("/Volumes/Seagate Portable Drive/0.raw_data")
+```
+
+```{r}
+library(raster)
+library(sf)
+library(doParallel)
+library(dplyr)
+library(lubridate)
+
+#Get the shapefile
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+```
+
+Split the data into EVI, NDVI, and VI
+```{r}
+#Define the directory and the pattern. We want day here so we will define accordingly
+raster_dir <- "/Volumes/Seagate Portable Drive/0.raw_data/0.6.Land_use_type"
+
+#Define the patterns
+pattern_LC <- "LC"
+pattern_QC <- "QC"
+
+#Get the tif files
+tif_files_LC <- list.files(path = raster_dir, pattern = pattern_LC, full.names = TRUE)
+tif_files_QC <- list.files(path = raster_dir, pattern = pattern_QC, full.names = TRUE)
+```
+
+
+```{r}
+LC_2019 <- list()
+LC_2020 <- list()
+LC_2021 <- list()
+LC_2022 <- list()
+
+QC_2019 <- list()
+QC_2020 <- list()
+QC_2021 <- list()
+QC_2022 <- list()
+
+for(file in tif_files_LC){
+  if(grepl("doy2019", file)){
+    LC_2019 <- append(LC_2019, file)
+  }else if(grepl("doy2020", file)){
+    LC_2020 <- append(LC_2020, file)
+  }else if(grepl("doy2021", file)){
+    LC_2021 <- append(LC_2021, file)
+  }else if(grepl("doy2022", file)){
+    LC_2022 <- append(LC_2022, file)
+  }
+}
+
+#Now we do the same for QC
+for(file in tif_files_QC){
+  if(grepl("doy2019", file)){
+    QC_2019 <- append(QC_2019, file)
+  }else if(grepl("doy2020", file)){
+    QC_2020 <- append(QC_2020, file)
+  }else if(grepl("doy2021", file)){
+    QC_2021 <- append(QC_2021, file)
+  }else if(grepl("doy2022", file)){
+    QC_2022 <- append(QC_2022, file)
+  }
+}
+```
+
+
+
+```{r}
+#We need to load in a sample LST file for resampling
+lst_sample <- "/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/MOD11A1.061_LST_Day_1km_doy2019028_aid0001.tif"
+lst_raster <- raster::brick(lst_sample)
+lst_raster <- raster::projectRaster(lst_raster, crs = crsSH) #Project the raster
+lst_raster <- raster::mask(lst_raster, mask = ct_shp) #Mask the raster
+
+
+#Let us go over the processing for loop
+process_LC_tif <- function(file_name){
+  raster_data <- raster::brick(file_name) #Load the tif file
+  raster_data <- raster::projectRaster(raster_data, crs = crsSH) #Project the raster to lonlat
+  raster_data <- raster::mask(raster_data, mask = ct_shp) #Mask the raster with the shapefile
+  
+  date_string <- sub(".+doy(\\d+)_aid.+\\.tif", "\\1", file_name) #Now extract the date and rename the data
+  date_string <- as.Date(date_string, format = "%Y%j")
+  
+  #Now we perform resampling
+  raster_data <- raster::resample(raster_data, lst_raster, method = "bilinear")
+  
+  #Now we want to extract the values and bound the results together
+  raster_values <- data.frame(raster::values(raster_data))
+  raster_coords <- data.frame(raster::coordinates(raster_data))
+  
+  raster_data <- cbind(raster_coords, raster_values)
+  
+  #Rename the data
+  names(raster_data) <- c("Longitude", "Latitude", pattern_LC)
+  #Get the date
+  raster_data$Date <- date_string
+  
+  return(raster_data)
+}
+```
+
+
+```{r}
+LC_data_2019 <- process_LC_tif(LC_2019)
+LC_data_2020 <- process_LC_tif(LC_2020)
+LC_data_2021 <- process_LC_tif(LC_2021)
+LC_data_2022 <- process_LC_tif(LC_2022)
+na.omit(LC_data_2022)
+```
+
+
+Now we do the same for QC
+```{r}
+#Let us go over the processing for loop
+process_QC_tif <- function(file_name){
+  raster_data <- raster::brick(file_name) #Load the tif file
+  raster_data <- raster::projectRaster(raster_data, crs = crsSH) #Project the raster to lonlat
+  raster_data <- raster::mask(raster_data, mask = ct_shp) #Mask the raster with the shapefile
+  
+  date_string <- sub(".+doy(\\d+)_aid.+\\.tif", "\\1", file_name) #Now extract the date and rename the data
+  date_string <- as.Date(date_string, format = "%Y%j")
+  
+  #Now we perform resampling
+  raster_data <- raster::resample(raster_data, lst_raster, method = "bilinear")
+  
+  #Now we want to extract the values and bound the results together
+  raster_values <- data.frame(raster::values(raster_data))
+  raster_coords <- data.frame(raster::coordinates(raster_data))
+  
+  raster_data <- cbind(raster_coords, raster_values)
+  
+  #Rename the data
+  names(raster_data) <- c("Longitude", "Latitude", pattern_QC)
+  #Get the date
+  raster_data$Date <- date_string
+  
+  return(raster_data)
+}
+```
+
+```{r}
+QC_data_2019 <- process_QC_tif(QC_2019)
+QC_data_2020 <- process_QC_tif(QC_2020)
+QC_data_2021 <- process_QC_tif(QC_2021)
+QC_data_2022 <- process_QC_tif(QC_2022)
+```
+
+Let's create 2023's values by adding one to the year. Let's rbind all of the data
+```{r}
+#Copy over the 2022 values for 2023
+LC_data_2023 <- LC_data_2022
+
+#Now we shift the date of the 2022 dates into 2023
+LC_data_2023 <- LC_data_2023 %>%
+  mutate(Date = Date + years(1))
+
+LC_data <- rbind(LC_data_2019, LC_data_2020, LC_data_2021, LC_data_2022, LC_data_2023)
+
+#We do the same for QC
+QC_data_2023 <- QC_data_2022 %>%
+  mutate(Date = Date + years(1))
+
+QC_data <- rbind(QC_data_2019, QC_data_2020, QC_data_2021, QC_data_2022, QC_data_2023)
+
+summary(QC_data$QC)
+```
+
+Now we convert them into RDS files
+```{r}
+saveRDS(LC_data, "/Volumes/Seagate Portable Drive/3.clean_data/Land_Cover_Data.RDS")
+saveRDS(QC_data, "/Volumes/Seagate Portable Drive/3.clean_data/Land_Cover_Quality_Flags.RDS")
+```
+
+
+Below is old code no longer relevant.
+--------------------------------------------------------------------------------
+Now write them all as csvs
+```{r}
+write.csv(LC_data_2019, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MCD12Q1LC2019.csv")
+write.csv(LC_data_2020, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MCD12Q1LC2020.csv")
+write.csv(LC_data_2021, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MCD12Q1LC2021.csv")
+write.csv(LC_data_2022, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MCD12Q1LC2022.csv")
+
+write.csv(QC_data_2019, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MCD12Q1QC2019.csv")
+write.csv(QC_data_2020, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MCD12Q1QC2020.csv")
+write.csv(QC_data_2021, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MCD12Q1QC2021.csv")
+write.csv(QC_data_2022, "/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/MCD12Q1QC2022.csv")
+```
+
+
+
+
+
+
+
+

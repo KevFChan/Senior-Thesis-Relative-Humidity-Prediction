@@ -1,0 +1,9 @@
+# R workspace files
+*.RData
+*.Rdata
+*.rdata
+*.RDataTmp
+*.Rhistory
+.RData
+.RDataTmp
+.Rhistory

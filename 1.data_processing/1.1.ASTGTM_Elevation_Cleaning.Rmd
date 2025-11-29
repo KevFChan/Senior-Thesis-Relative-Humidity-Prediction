@@ -1,0 +1,119 @@
+---
+title: "ASTGTMElevationCleaning"
+output: html_document
+date: "2024-04-19"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This Rmd file uses the ASTGTM Elevation data and converts it into CSV file format. Perhaps it would be better to add the data to the raster data type rather than converting it immediately into csv
+
+We set the working directory to be the same as the HPC cluster directory
+```{r}
+setwd("/Volumes/Seagate Portable Drive/0.raw_data")
+```
+
+```{r}
+library(raster)
+library(sf)
+library(doParallel)
+
+#Get the shapefile
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+
+#MOD11A1LSTDay.R
+
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+```
+
+```{r}
+#We only have one elevation file so we can just read it in
+elevation_raster <- "/Volumes/Seagate Portable Drive/0.raw_data/0.4.Elevation/ASTGTM_NC.003_ASTER_GDEM_DEM_doy2000061_aid0001.tif"
+
+#We want to read in one LST file so that we can use it to resample the elevation
+lst_sample <- "/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/MOD11A1.061_LST_Day_1km_doy2019028_aid0001.tif"
+```
+
+```{r}
+#We need to load in the data
+lst_raster <- raster::brick(lst_sample)
+lst_raster <- raster::projectRaster(lst_raster, crs = crsSH) #Project the raster
+lst_raster <- raster::mask(lst_raster, mask = ct_shp) #Mask the raster
+
+#Do the same for the elevation data
+elevation_data <- raster::brick(elevation_raster)
+elevation_data <- raster::projectRaster(elevation_data, crs = crsSH)
+elevation_data <- raster::mask(elevation_data, mask = ct_shp)
+print(elevation_data)
+print(lst_raster)
+
+#We see that the resolution of the elevation data is indeed finer than the raster values
+#Elevation is x and LST is y
+elevation_redata <- resample(elevation_data, lst_raster, method = "bilinear")
+
+raster_lst_values <- data.frame(raster::values(lst_raster))
+raster_lst_coords <- data.frame(raster::coordinates(lst_raster))
+raster_lst <- cbind(raster_lst_coords, raster_lst_values)
+
+#Elevation data
+elevation_values <- data.frame(raster::values(elevation_redata))
+elevation_coords <- data.frame(raster::coordinates(elevation_redata))
+elevation_raster <- cbind(elevation_coords, elevation_values)
+```
+
+So the resampling code works. We see that 17,314 1 kilometer by 1 kilometer squares are not empty and Connecticut is 14,357 square kilometers so our number of rows is consistent.
+```{r}
+#Let's rename the data
+names(elevation_raster) <- c("Longitude", "Latitude", "Elevation")
+
+na.omit(elevation_raster)
+```
+
+```{r}
+#Now save the csv. This is outdated
+saveRDS(elevation_raster, "/Volumes/Seagate Portable Drive/3.clean_data/Elevation_Data.RDS")
+```
+
+
+Below contains a sample of the loop used to make the above code. 
+--------------------------------------------------------------------------------
+
+```{r}
+#Let us go over the processing for loop
+process_tif <- function(file_name){
+  raster_data <- raster::brick(file_name) #Load the tif file
+  raster_data <- raster::projectRaster(raster_data, crs = crsSH) #Project the raster to lonlat
+  raster_data <- raster::mask(raster_data, mask = ct_shp) #Mask the raster with the shapefile
+  
+  date_string <- sub(".+doy(\\d+)_aid.+\\.tif", "\\1", file_name) #Now extract the date and rename the data
+  date_string <- as.Date(date_string, format = "%Y%j")
+  
+  #Now we want to extract the values and bound the results together
+  raster_values <- data.frame(raster::values(raster_data))
+  raster_coords <- data.frame(raster::coordinates(raster_data))
+  
+  raster_data <- cbind(raster_coords, raster_values)
+  
+  #Rename the data
+  names(raster_data) <- c("Longitude", "Latitude", "Temp")
+  #Get the date
+  raster_data$Date <- date_string
+  
+  return(raster_data)
+}
+```
+
+
+
+
+
