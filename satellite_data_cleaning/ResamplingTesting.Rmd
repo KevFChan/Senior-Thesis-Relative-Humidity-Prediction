@@ -1,0 +1,190 @@
+---
+title: "DataProcessing"
+output: html_document
+date: "2024-04-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(raster)
+library(sf)
+library(doParallel)
+library(RColorBrewer)
+```
+
+Let's first use one LST file from MOD11A1
+```{r}
+#Import the shapefile
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+```
+
+We now know the CRFs so let us define the first and the second
+```{r}
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+
+#CRS of the data
+crsTemp <- CRS("+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +R=6371007.181 +units=m +no_defs")
+```
+
+Load in the TIF file
+```{r}
+modis_LST_sample <- raster::brick("/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/MOD11A1.061_LST_Day_1km_doy2019001_aid0001.tif")
+
+#Get the tif file's CRS
+modis_LST_crs <- raster::crs(modis_LST_sample)
+```
+
+Now we project the modis data using our shapefile's crs and we mask using the shapefile to only get the state of Connecticut
+```{r}
+modis_LST_lonlat <- raster::projectRaster(modis_LST_sample, crs = crsSH)
+
+#Now let us use the mask in order to get only the raster we need for Connecticut
+modis_LST_lonlat <- raster::mask(modis_LST_lonlat, mask = ct_shp)
+```
+Now we will load in the elevation data
+```{r}
+elevation_dat <- raster::brick("/Volumes/Seagate Portable Drive/0.raw_data/0.4.Elevation/ASTGTM_NC.003_ASTER_GDEM_DEM_doy2000061_aid0001.tif")
+
+#Get the tif file's CRS
+elevation_dat_crs <- raster::crs(elevation_dat)
+
+elevation_dat_lonlat <- raster::projectRaster(elevation_dat, crs = crsSH)
+
+#Now let us use the mask in order to get only the raster we need for Connecticut
+elevation_dat_lonlat <- raster::mask(elevation_dat_lonlat, mask = ct_shp)
+```
+
+We now do the resampling so that the elevation raster matches the resolution of the temperature raster
+```{r}
+elevation_resample <- resample(elevation_dat_lonlat, modis_LST_lonlat, method = "bilinear")
+
+#Now we stack the temperature and resampled elevation
+LST_elevation <- stack(modis_LST_lonlat, elevation_resample)
+
+#Name the layers
+names(LST_elevation) <- c("temperature", "elevation")
+
+print(elevation_resample)
+print(modis_LST_lonlat)
+print(LST_elevation)
+```
+
+
+```{r}
+plot(LST_elevation$elevation, main = "Elevation", col = brewer.pal(9, "YlOrRd"))
+plot(LST_elevation$temperature, main = "Temperature", col = brewer.pal(9, "YlOrRd"))
+```
+
+
+Connecticut is 14,360 square kilometers 
+```{r}
+dat_values <- values(LST_elevation)
+
+#Temperature
+sum(is.na(dat_values[,1]))
+
+#Elevation
+sum(is.na(dat_values[,2]))
+
+nrow(dat_values)
+```
+
+
+Now let's try parallel processing
+```{r}
+#Import the shapefile
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+
+#Apparently I have a quad-core
+num_cores <- 4
+cl <- makeCluster(num_cores)
+registerDoParallel(cl)
+
+#Define the directory 
+raster_dir <- "/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1"
+
+#Define the pattern, here we only want the files with days
+pattern <- "Day"
+
+#Get the tif files
+tif_files <- list.files(path = raster_dir, pattern = pattern, full.names = TRUE)
+
+#Create an empty list to store rasters and then we can stack them later
+stacked_rasters <- list()
+
+#Define the function for transformation
+transform_tif <- function(tif_file){
+  #Load the tif files
+  raster_data <- raster::brick(tif_file)
+  
+  #Project the data
+  raster_data_trans <- raster::projectRaster(raster_data, crs = crsSH)
+  
+  #Now use the mask
+  raster_data_trans <- raster::mask(raster_data_trans, mask = ct_shp)
+  
+  #Now we can extract the date and rename the data
+  date_string <- sub(".+doy(\\d+)_aid.+\\.tif", "\\1", tif_file)
+  
+  #Format into the date
+  date <- as.Date(date_string, format = "%Y%j")
+  
+  #Rename the data
+  names(raster_data_trans) <- as.character(date)
+  
+  #Now we have the data we need
+  return(raster_data_trans)
+}
+
+#Now execute the transformations
+transformed_rasters <- foreach(tif_file = tif_files[1:8], .combine = 'c') %dopar% {
+  #processed_raster <- transform_tif(tif_file)
+  transform_tif(tif_file)
+  #Now we add it to the stack
+  #stacked_rasters[[length(stacked_rasters) + 1]] <- processed_raster
+}
+
+# for(tif_file in tif_files[1:8]){
+#   processed_raster <- transform_tif(tif_file)
+#   stacked_rasters[[length(stacked_rasters) + 1]] <- processed_raster
+# }
+
+
+#Now we convert the list into a raster stack
+stacked_rasters <- stack(transformed_rasters)
+
+#Stop the cluster
+stopCluster(cl)
+
+#writeRaster(stacked_rasters, "/Volumes/Seagate Portable Drive/MOD11A1StackedLST.tif")
+```
+
+```{r}
+#test <- raster::brick("/Volumes/Seagate Portable Drive/MOD11A1StackedLST.tif")
+```
+
+```{r}
+temp1 <- transform_tif(tif_files[1])
+temp2 <- transform_tif(tif_files[3])
+final <- stack(final, temp2)
+```
+

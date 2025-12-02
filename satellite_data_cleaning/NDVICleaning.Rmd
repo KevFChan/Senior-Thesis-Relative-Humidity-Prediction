@@ -1,0 +1,31 @@
+---
+title: "NDVICleaning"
+output: html_document
+date: "2024-04-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(raster)
+library(sf)
+library(doParallel)
+library(RColorBrewer)
+```
+
+
+Let's first use one LST file from MOD11A1
+```{r}
+#Import the shapefile
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+```
+
+

@@ -1,0 +1,153 @@
+---
+title: "ElevationCleaning"
+output: html_document
+date: "2024-04-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import the required packages
+```{r}
+library(raster)
+library(sf)
+```
+
+Let's first import our shapefile for Connecticut
+```{r}
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+```
+
+We now know the CRFs so let us define the first and the second
+```{r}
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+
+#CRS of the data
+crsTemp <- CRS("+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +R=6371007.181 +units=m +no_defs")
+```
+
+Now we want to make sure the CRS projection works
+```{r}
+elevation_AST <- raster::brick("/Volumes/Seagate Portable Drive/0.raw_data/0.4.Elevation/ASTGTM_NC.003_ASTER_GDEM_DEM_doy2000061_aid0001.tif")
+
+#Get the tif file's CRS
+elevation_AST_crs <- raster::crs(elevation_AST)
+```
+
+Now we project the modis data using our shapefile's crs and we mask using the shapefile to only get the state of Connecticut
+```{r}
+elevation_AST_lonlat <- raster::projectRaster(elevation_AST, crs = crsSH)
+
+#Now let us use the mask in order to get only the raster we need for Connecticut
+elevation_AST_lonlat <- raster::mask(elevation_AST_lonlat, mask = ct_shp)
+#crs(modis_LST_lonlat)
+```
+
+Now let's extract the modis values
+```{r}
+#Get the modis values
+AST_values <- values(elevation_AST_lonlat)
+elevation_AST_values <- data.frame(AST_values)
+
+#Get the coordinates
+AST_coords <- coordinates(elevation_AST_lonlat)
+AST_coords <- data.frame(AST_coords)
+
+#Now let's merge them together
+bound_data <- cbind(AST_coords, AST_values)
+
+#Now we can rename
+names(bound_data) <- c("Longitude", "Latitude", "Elevation")
+```
+
+So Connecticut is 14,360 square kilometers, but we have 67,860. Let's look at the entries not NA
+```{r}
+bound_data[!is.na(bound_data$Elevation),]
+```
+
+And we now are down to 4,510 which is way too low. So that means some of the NAs are missing data. As a result, let's filter based on the latitude and longitude values of the shapefile.
+```{r}
+bbx <- st_bbox(ct_shp)
+```
+
+So let's implement the conditions
+```{r}
+#First the longitude
+test <- bound_data[bound_data$Longitude >= bbx["xmin"] & bound_data$Longitude <= bbx["xmax"], ]
+
+#Now the same for latitude
+test <- test[test$Latitude >= bbx["ymin"] & test$Latitude <= bbx["ymax"],]
+summary(test["Latitude"])
+summary(test["Longitude"])
+```
+
+Okay, seems a bit better. Let's now look at how the data is:
+```{r}
+nrow(test)
+nrow(test[is.na(test$Elevation),])
+elevation_data <- test
+```
+
+We now have 27,609,855 rows with 7,552,546 having NA measurements. Not ideal, but it is what it is. We will continue with this. 
+```{r}
+elevation_table <- table(elevation_data$Latitude, elevation_data$Longitude)
+
+# Convert the table to a data frame and add counts as a column
+lat_lon_df <- as.data.frame.table(elevation_table)
+
+# Filter the data frame to include only rows with counts greater than one
+#Seems like we only ever have one instance of each latitude and longitude pair
+filtered_lat_lon <- lat_lon_df[lat_lon_df$Freq > 1, ]
+```
+
+Let's try to merge it with the small subsets of LST temperature data we have
+First let's read them both in
+```{r}
+LST_bf <- read.csv("/Volumes/Seagate Portable Drive/CleanedSampleData/LST_batch_bf.csv")
+LST_iy <- read.csv("/Volumes/Seagate Portable Drive/CleanedSampleData/LST_batch_iy.csv")
+```
+
+We need to fix the names and the date time variable
+```{r}
+names(LST_bf) <- c("Index", "Latitude", "Longitude", "Temp", "TimeOfDay", "Date")
+names(LST_iy) <- c("Index", "Latitude", "Longitude", "Temp", "TimeOfDay", "Date")
+```
+
+Now we convert date into a date time variable
+```{r}
+LST_bf$Date <- as.Date(LST_bf$Date, "%Y-%m-%d")
+LST_iy$Date <- as.Date(LST_iy$Date, "%Y-%m-%d")
+```
+
+
+```{r}
+nrow(elevation_data)
+nrow(LST_bf)
+nrow(LST_iy)
+```
+
+We will now try to combine the two datasets together
+```{r}
+LST_elevation <- merge(LST_bf, elevation_data, by = c("Latitude", "Longitude"), all.x = TRUE)
+```
+
+Seems like we need to do some sort of rounding
+```{r}
+head(LST_elevation[!is.na(LST_elevation$Temp),])
+```
+
+Now we will save the file for later
+```{r}
+write.csv(elevation_data, "/Volumes/Seagate Portable Drive/CleanedSampleData/ASTElevationData.csv")
+```
+
+
+

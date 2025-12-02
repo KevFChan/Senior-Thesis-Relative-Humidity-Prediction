@@ -1,0 +1,142 @@
+---
+title: "Satellite Cleaning Data"
+output: html_document
+date: "2024-04-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Set the working directory to the raw data folder
+```{r}
+setwd("/Volumes/Seagate Portable Drive/0.raw_data")
+```
+
+Import the required packages
+```{r}
+library(raster)
+library(sf)
+```
+
+
+Let's first import our shapefile for Connecticut
+```{r}
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+```
+
+We now know the CRFs so let us define the first and the second
+```{r}
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+
+#CRS of the data
+crsTemp <- CRS("+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +R=6371007.181 +units=m +no_defs")
+```
+
+Now we want to make sure the CRS projection works
+```{r}
+modis_LST_sample <- raster::brick("/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/MOD11A1.061_LST_Day_1km_doy2017365_aid0001.tif")
+
+#Get the tif file's CRS
+modis_LST_crs <- raster::crs(modis_LST_sample)
+```
+
+Now we project the modis data using our shapefile's crs and we mask using the shapefile to only get the state of Connecticut
+```{r}
+modis_LST_lonlat <- raster::projectRaster(modis_LST_sample, crs = crsSH)
+
+#Now let us use the mask in order to get only the raster we need for Connecticut
+modis_LST_lonlat <- raster::mask(modis_LST_lonlat, mask = ct_shp)
+#crs(modis_LST_lonlat)
+```
+
+Now let's extract the modis values
+```{r}
+#Get the modis values
+modis_values <- values(modis_LST_lonlat)
+modis_values <- data.frame(modis_values)
+
+#Get the coordinates
+modis_coords <- coordinates(modis_LST_lonlat)
+modis_coords <- data.frame(modis_coords)
+
+#Now let's merge them together
+bound_data <- cbind(modis_coords, modis_values)
+
+#Now we can rename
+names(bound_data) <- c("Longitude", "Latitude", "Values")
+```
+
+So Connecticut is 14,360 square kilometers, but we have 67,860. Let's look at the entries not NA
+```{r}
+bound_data[!is.na(bound_data$Values),]
+```
+
+And we now are down to 4,510 which is way too low. So that means some of the NAs are missing data. As a result, let's filter based on the latitude and longitude values of the shapefile.
+```{r}
+bbx <- st_bbox(ct_shp)
+```
+
+So let's implement the conditions
+```{r}
+#First the longitude
+test <- bound_data[bound_data$Longitude >= bbx["xmin"] & bound_data$Longitude <= bbx["xmax"], ]
+
+#Now the same for latitude
+test <- test[test$Latitude >= bbx["ymin"] & test$Latitude <= bbx["ymax"],]
+summary(test["Latitude"])
+summary(test["Longitude"])
+```
+
+Okay, seems a bit better. Let's now look at how the data is:
+```{r}
+nrow(test)
+nrow(test[!is.na(test$Values),])
+```
+
+We now have 23,100 rows with 4510 having NA measurements. While not ideal, the number is still better than before. We will continue with this. Now we want to do some data processing on the file name to get the string.
+```{r}
+string <- "MOD11A1.061_LST_Day_1km_doy2017365_aid0001.tif"
+
+#Try gsub
+(tempString <- gsub(".*doy", "", string))
+
+#Now we just want the first 7 characters
+(date_string <- substring(tempString, 1, 7))
+
+#Now we want to convert this into a date time format
+#Extract the year
+(year <- substring(date_string, 1, 4))
+(day_of_year <- substring(date_string, 5, 7))
+
+#Now we want to create the datetime object
+(datetime <- as.POSIXct(strptime(paste(year, day_of_year), format = "%Y %j")))
+
+#Now we remove the time zone
+(datetime <- format(datetime, "%Y-%m-%d"))
+
+#Now we convert it
+(datetime <- as.Date(datetime))
+```
+
+```{r}
+#Now we can create a new column in the original data set
+test$Date <- datetime
+```
+
+Great, now we have a baseline. We will now go write the for loop.
+
+
+
+
+
+
+
+

@@ -1,0 +1,64 @@
+---
+title: "ERA5Processing"
+output: html_document
+date: "2024-04-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Load the rNOMADS library to process the grib data
+```{r}
+library(rNOMADS)
+library(sf)
+```
+
+```{r}
+temp_2019 <- raster::brick("/Volumes/Seagate Portable Drive/0.raw_data/0.3.ERA5/temp_2019.grib")
+
+#Let's try to get the LST data
+modis_LST_sample <- raster::brick("/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/MOD11A1.061_LST_Day_1km_doy2019001_aid0001.tif")
+
+#Get the tif file's CRS
+modis_LST_crs <- raster::crs(modis_LST_sample)
+
+modis_LST_lonlat <- raster::projectRaster(modis_LST_sample, crs = crsSH)
+
+#Prep the shapefile mask
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+
+modis_LST_lonlat <- raster::mask(modis_LST_lonlat, mask = ct_shp)
+```
+
+Let us perform the resampling
+```{r}
+#Subset the ERA-5 to get one hour for LST night and one for day, can pick the closest hour to the LST timestamps, or 8 AM or 8 PM. ERA-5 uses UTC not local, so subtract 5.
+#ngb
+#This should be 1 km by 1 km
+era5_resampled <- resample(temp_2019, modis_LST_lonlat, method = "ngb")
+
+#Just get values and get coordinates to perform a regression to predict the NAs in the LST data
+#Obtain a raster mask
+mask_raster <- rasterize(ct_shp, modis_LST_lonlat)
+
+#Replace the NAs in MODIS with values from ERA-5, mask by shapefile
+modis_filled <- mask(modis_LST_lonlat, era5_resampled, mask = mask_raster)
+```
+
+```{r}
+#r is 120, 60 resolution. s is 36, 18 resolution. s becomes 36, 18 resolution
+#My s should be LST and my r should be ERA-5
+r <- raster(nrow=3, ncol=3)
+values(r) <- 1:ncell(r)
+s <- raster(nrow=10, ncol=10)
+s <- resample(r, s, method='bilinear')
+```
+
+

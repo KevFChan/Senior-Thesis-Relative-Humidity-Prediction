@@ -1,0 +1,260 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+Set the working directory to the land surface temperature raw data folder
+```{r}
+setwd("/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/")
+```
+
+Import the required packages
+```{r}
+library(raster)
+library(sf)
+```
+
+Let's first import our shapefile for CT
+```{r}
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/Shapefiles/tl_2022_us_state/tl_2022_us_state.shp")
+
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+```
+
+We now know the CRFs so let us define the first and the second
+```{r}
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+
+#CRS of the data
+crsTemp <- CRS("+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +R=6371007.181 +units=m +no_defs")
+```
+
+
+Now we want to loop through each of the files
+```{r}
+#Define the directory
+tif_directory <- "/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/"
+
+#List all the TIF files in the directory
+tif_files <- list.files(tif_directory, pattern = "\\.tif$", full.names = TRUE)
+```
+
+Now we shall define a for loop to loop through
+```{r}
+#Define the bounding box
+bbx <- st_bbox(ct_shp)
+```
+
+3,638 many files
+```{r}
+#A place to hold all of the data
+LST_data_1 <- data.frame()
+
+for(tif_file in tif_files[1:1000]){
+  #Let us first project the file to the longitude and latitude system
+  modis_LST <- raster::brick(tif_file)
+  modis_LST_LatLon <- raster::projectRaster(modis_LST, crs = crsSH)
+  
+  #Now we mask it
+  modis_LST_LatLon <- raster::mask(modis_LST_LatLon, mask = ct_shp)
+  
+  #And extract the modis values and corresponding coordinates
+  modis_values <- data.frame(values(modis_LST_LatLon))
+  modis_coords <- data.frame(coordinates(modis_LST_LatLon))
+  
+  #Now we merge them together
+  bound_modis <- cbind(modis_coords, modis_values)
+  
+  #Rename the columns
+  names(bound_modis) <- c("Longitude", "Latitude", "Values")
+  
+  #Now we will implement the boundary conditions
+  bounded <- bound_modis[bound_modis$Longitude >= bbx["xmin"] & bound_modis$Longitude <= bbx["xmax"], ]
+  
+  #Now the same for latitude
+  bounded <- bounded[bounded$Latitude >= bbx["ymin"] & bounded$Latitude <= bbx["ymax"], ]
+  
+  #Create a new variable in the column to denote whether or not we are dealing with day or night
+  if(grepl("Day", tif_file)){
+    #Then we have day
+    bounded$TimeOfDay <- "Day"
+  }
+  if(grepl("Night", tif_file)){
+    bounded$TimeOfDay <- "Night"
+  }
+  
+  #Now we do some string manipulation to get the date
+  doy <- gsub(".*doy", "", tif_file)
+  date_string <- substring(doy, 1, 7)
+  
+  #Convert to date time
+  year <- substring(date_string, 1, 4)
+  day_of_year <- substring(date_string, 5, 7)
+  
+  #Create datetime object
+  datetime <- as.POSIXct(strptime(paste(year, day_of_year), format = "%Y %j"))
+  
+  #Remove the time zone
+  datetime <- format(datetime, "%Y-%m-%d")
+  cat(datetime, "")
+  
+  #Convert it 
+  datetime <- as.Date(datetime)
+  
+  #Now create the new column in the data set
+  bounded$Date <- datetime
+  
+  #And now we rbind to the original data frame
+  LST_data_1 <- rbind(LST_data_1, bounded)
+}
+
+temp_1 <- LST_data_1
+```   
+
+
+```{r}
+LST_data_2 <- data.frame()
+
+for(tif_file in tif_files[1001:2000]){
+  #Let us first project the file to the longitude and latitude system
+  modis_LST <- raster::brick(tif_file)
+  modis_LST_LatLon <- raster::projectRaster(modis_LST, crs = crsSH)
+  
+  #Now we mask it
+  modis_LST_LatLon <- raster::mask(modis_LST_LatLon, mask = ct_shp)
+  
+  #And extract the modis values and corresponding coordinates
+  modis_values <- data.frame(values(modis_LST_LatLon))
+  modis_coords <- data.frame(coordinates(modis_LST_LatLon))
+  
+  #Now we merge them together
+  bound_modis <- cbind(modis_coords, modis_values)
+  
+  #Rename the columns
+  names(bound_modis) <- c("Longitude", "Latitude", "Values")
+  
+  #Now we will implement the boundary conditions
+  bounded <- bound_modis[bound_modis$Longitude >= bbx["xmin"] & bound_modis$Longitude <= bbx["xmax"], ]
+  
+  #Now the same for latitude
+  bounded <- bounded[bounded$Latitude >= bbx["ymin"] & bounded$Latitude <= bbx["ymax"], ]
+  
+  #Create a new variable in the column to denote whether or not we are dealing with day or night
+  if(grepl("Day", tif_file)){
+    #Then we have day
+    bounded$TimeOfDay <- "Day"
+  }
+  if(grepl("Night", tif_file)){
+    bounded$TimeOfDay <- "Night"
+  }
+  
+  #Now we do some string manipulation to get the date
+  doy <- gsub(".*doy", "", tif_file)
+  date_string <- substring(doy, 1, 7)
+  
+  #Convert to date time
+  year <- substring(date_string, 1, 4)
+  day_of_year <- substring(date_string, 5, 7)
+  
+  #Create datetime object
+  datetime <- as.POSIXct(strptime(paste(year, day_of_year), format = "%Y %j"))
+  
+  #Remove the time zone
+  datetime <- format(datetime, "%Y-%m-%d")
+  cat(datetime, "")
+  
+  #Convert it 
+  datetime <- as.Date(datetime)
+  
+  #Now create the new column in the data set
+  bounded$Date <- datetime
+  
+  #And now we rbind to the original data frame
+  LST_data_2 <- rbind(LST_data_2, bounded)
+}
+
+temp_2 <- LST_data_2
+```
+
+
+
+```{r}
+LST_data_3 <- data.frame()
+
+for(tif_file in tif_files[2001:3637]){
+  #Let us first project the file to the longitude and latitude system
+  modis_LST <- raster::brick(tif_file)
+  modis_LST_LatLon <- raster::projectRaster(modis_LST, crs = crsSH)
+  
+  #Now we mask it
+  modis_LST_LatLon <- raster::mask(modis_LST_LatLon, mask = ct_shp)
+  
+  #And extract the modis values and corresponding coordinates
+  modis_values <- data.frame(values(modis_LST_LatLon))
+  modis_coords <- data.frame(coordinates(modis_LST_LatLon))
+  
+  #Now we merge them together
+  bound_modis <- cbind(modis_coords, modis_values)
+  
+  #Rename the columns
+  names(bound_modis) <- c("Longitude", "Latitude", "Values")
+  
+  #Now we will implement the boundary conditions
+  bounded <- bound_modis[bound_modis$Longitude >= bbx["xmin"] & bound_modis$Longitude <= bbx["xmax"], ]
+  
+  #Now the same for latitude
+  bounded <- bounded[bounded$Latitude >= bbx["ymin"] & bounded$Latitude <= bbx["ymax"], ]
+  
+  #Create a new variable in the column to denote whether or not we are dealing with day or night
+  if(grepl("Day", tif_file)){
+    #Then we have day
+    bounded$TimeOfDay <- "Day"
+  }
+  if(grepl("Night", tif_file)){
+    bounded$TimeOfDay <- "Night"
+  }
+  
+  #Now we do some string manipulation to get the date
+  doy <- gsub(".*doy", "", tif_file)
+  date_string <- substring(doy, 1, 7)
+  
+  #Convert to date time
+  year <- substring(date_string, 1, 4)
+  day_of_year <- substring(date_string, 5, 7)
+  
+  #Create datetime object
+  datetime <- as.POSIXct(strptime(paste(year, day_of_year), format = "%Y %j"))
+  
+  #Remove the time zone
+  datetime <- format(datetime, "%Y-%m-%d")
+  cat(datetime, "")
+  
+  #Convert it 
+  datetime <- as.Date(datetime)
+  
+  #Now create the new column in the data set
+  bounded$Date <- datetime
+  
+  #And now we rbind to the original data frame
+  LST_data_3 <- rbind(LST_data_3, bounded)
+}
+
+temp_3 <- LST_data_3
+```
+
+
+
+```{r}
+final_LST_data <- rbind(temp_1, temp_2)
+final_LST_data <- rbind(final_LST_data, temp_3)
+write.csv(final_LST_data, "/Volumes/Seagate Portable Drive/0.raw_data/LST_processed_data.csv")
+```
+
+```{r}
+sum(is.na(final_LST_data))
+```
