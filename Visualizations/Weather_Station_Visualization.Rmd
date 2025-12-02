@@ -1,0 +1,85 @@
+---
+title: "WeatherStationVisualization"
+output: html_document
+date: "2024-04-21"
+---
+
+We want to create a map of the different relative humidity stations.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import libraries
+```{r}
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(raster)
+library(sf)
+```
+
+Load in the original weather station data
+```{r}
+weather_stat <- read.csv("/Volumes/Seagate Portable Drive/Data_Cleaning_Code/WeatherStationData.csv")
+```
+
+First, we need to subset to the weather stations with relative humidity measurements. We obtained the 16 weather data sets of interest from subsetting based on the weather stations with relative humidity measurements.
+```{r}
+#Load in the data
+weatherStations <- read.csv("/Volumes/Seagate Portable Drive/Data_Cleaning_Code/WeatherStations.csv")
+
+#Rename the columns for my reference
+names(weatherStations) <- c("Index", "Station Code")
+
+#Now we want the data from only these 16 weather stations
+station_codes <- weatherStations$`Station Code`
+
+#Now we filter the weather stations
+station_dat <- station_dat %>% 
+  filter(STATION %in% station_codes)
+
+#Now we conduct a check to make sure we have the right 16
+unique(station_dat$STATION)
+```
+
+Let's split the date and time. We should also convert the new date into a date format.
+```{r}
+station_dat[c("Date", "Time")] <- str_split_fixed(station_dat$DATE, "T", 2)
+station_dat$Date <- as.Date(station_dat$Date, "%Y-%m-%d")
+```
+
+Let's extract one row per unique weather station
+```{r}
+weather_stats <- station_dat %>%
+  group_by(STATION) %>%
+  sample_n(1)
+```
+
+We need to get the shapefile
+```{r}
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/0.raw_data/0.tl_2020_us_state/tl_2020_us_state.shp")
+#Subset on the Connecticut state shapefile
+ct_shp <- us_shp[us_shp$NAME %in% c("Connecticut", "Massachusetts", "New York"),]
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+```
+
+We want to convert the weather stations data frame into an sf object
+```{r}
+weather_stations_sf <- st_as_sf(weather_stats, coords = c("LONGITUDE", "LATITUDE"), crs = st_crs(ct_shp))
+```
+
+Now we plot
+```{r}
+ggplot() +
+  geom_sf(data = ct_shp) +
+  geom_sf(data = weather_stations_sf, color = "red", size = 3) +
+  theme_minimal() +
+  coord_sf(xlim = c(-74, -71), ylim = c(40.8, 42.5))
+```
+
+
+
+

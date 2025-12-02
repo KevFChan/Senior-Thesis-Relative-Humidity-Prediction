@@ -1,0 +1,64 @@
+---
+title: "WeatherStationSummaryStats"
+output: html_document
+date: "2024-05-04"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(stringr)
+library(dplyr)
+```
+
+```{r}
+weather_stats <- read.csv("/Volumes/Seagate Portable Drive/Weather_Station_Data_Cleaning_Code/RelativeHumidityWeatherStationData.csv")
+```
+
+We need to split the Date into date and time
+```{r}
+split_datetime <- str_split(weather_stats$DATE, "T")
+weather_stats$DATE <- sapply(split_datetime, function(x) x[1])
+weather_stats$DATE <- as.Date(weather_stats$DATE, "%Y-%m-%d")
+
+weather_stats$Hour <- sapply(split_datetime, function(x) as.numeric(sub("^(\\d{2}).*", "\\1", x[2])))
+#Factorize the hour
+weather_stats$Hour <- as.factor(weather_stats$Hour)
+
+names(weather_stats)
+```
+
+```{r}
+weather_stats$HourlyRelativeHumidity <- as.numeric(weather_stats$HourlyRelativeHumidity)
+summary(weather_stats$HourlyRelativeHumidity)
+length(weather_stats$HourlyRelativeHumidity)
+sd(weather_stats$HourlyRelativeHumidity, na.rm = TRUE)
+```
+
+
+Let's look at the relationship between the NAs in LST
+```{r}
+satellite <- readRDS("/Volumes/Seagate Portable Drive/ModelingData/3.0.Scaled_Station_predictor_all.rds")
+names(satellite)
+```
+
+```{r}
+nrow(satellite)
+summary(satellite$MOD_Day_lst)
+summary(satellite$MOD_day_forRF)
+```
+
+```{r}
+summary(satellite$MOD_Night_lst)
+summary(satellite$MOD_night_forRF)
+```
+
+```{r}
+summary(satellite$MYD_Day_lst)
+summary(satellite$MYD_Night_lst)
+```
+
+
+
