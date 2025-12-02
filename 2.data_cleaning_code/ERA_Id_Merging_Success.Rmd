@@ -1,0 +1,114 @@
+---
+title: "ERA_Id_Merging"
+output: html_document
+date: "2024-04-29"
+---
+
+The goal of this Rmd file is to merge the "key" of grid ids with the ERA reanalysis relative humidity data to get a data set that has grid ids for future merging. We do this by obtaining what we call "era.id" and then merging it with the ERA data sets to get the final "grid_id" that corresponds to each row. 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(raster)
+library(sf)
+library(foreach)
+library(doParallel)
+library(stringr)
+```
+
+Let's get the 2019 data
+```{r}
+data_2019 <- readRDS("/Volumes/Seagate Portable Drive/3.clean_data/Cleaned_Data/Cleaned_ERA_RH_Data/ERA2019RHCorrected.RDS")
+
+#Create two other latitude and longitude columns rounded to the tenths place for merging
+data_2019$lon <- round(data_2019$Longitude, 1)
+data_2019$lat <- round(data_2019$Latitude, 1)
+
+#Seems like there are 15,552 different combinations for "Longitude" and "Latitude" and then 144 combinations for "lon" and "lat". Need to check the differences in measurement
+unique(data_2019[, c("Longitude", "Latitude")])
+unique(data_2019[, c("lon", "lat")])
+```
+
+Get the grid_ids
+```{r}
+grid_ids <- readRDS("/Volumes/Seagate Portable Drive/Modeling_Data/8.2.ERA_grid_resample_MODIS_grids_withLonLat.rds")
+
+#We just want the era.id so we'll take columns 5 to 9
+grid_ids <- grid_ids[, 5:9]
+
+#Deduplicate. Seems like there are 167 unique grid ids. So we are using the correct rounding method.
+grid_ids <- unique(grid_ids)
+```
+
+Let's merge by the lon and lat
+```{r}
+data_2019 <- merge(data_2019, grid_ids, by = c("lon", "lat"))
+#0 NAs!!!!
+#sum(is.na(data_2019))
+```
+
+
+```{r}
+#saveRDS(data_2019, "/Volumes/Seagate Portable Drive/ModelingData/RHDataForERAModel/RHDataIds2019.RDS")
+```
+
+
+Now we just repeat the steps for the other years. We do 2020
+```{r}
+data_2020 <- readRDS("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/CleanederaRHData/ERA2020RHCorrected.RDS")
+#Create two other latitude and longitude columns rounded to the tenths place for merging
+data_2020$lon <- round(data_2020$Longitude, 1)
+data_2020$lat <- round(data_2020$Latitude, 1)
+data_2020 <- merge(data_2020, grid_ids, by = c("lon", "lat"))
+#sum(is.na(data_2020))
+#No NAs
+#saveRDS(data_2020, "/Volumes/Seagate Portable Drive/ModelingData/RHDataForERAModel/RHDataIds2020.RDS")
+```
+
+
+Now for 2021
+```{r}
+data_2021 <- readRDS("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/CleanederaRHData/ERA2021RHCorrected.RDS")
+#Create two other latitude and longitude columns rounded to the tenths place for merging
+data_2021$lon <- round(data_2021$Longitude, 1)
+data_2021$lat <- round(data_2021$Latitude, 1)
+data_2021 <- merge(data_2021, grid_ids, by = c("lon", "lat"))
+data_2021 <- data_2021[, -c(1,2)]
+#sum(is.na(data_2021))
+#No NAs
+saveRDS(data_2021, "/Volumes/Seagate Portable Drive/ModelingData/RHDataForERAModel/RHDataIds2021.RDS")
+```
+
+
+Now for 2022
+```{r}
+data_2022 <- readRDS("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/CleanederaRHData/ERA2022RHCorrected.RDS")
+#Create two other latitude and longitude columns rounded to the tenths place for merging
+data_2022$lon <- round(data_2022$Longitude, 1)
+data_2022$lat <- round(data_2022$Latitude, 1)
+data_2022 <- merge(data_2022, grid_ids, by = c("lon", "lat"))
+data_2022 <- data_2022[, -c(1,2)]
+#sum(is.na(data_2022))
+#No NAs
+#saveRDS(data_2022, "/Volumes/Seagate Portable Drive/ModelingData/RHDataForERAModel/RHDataIds2022.RDS")
+```
+
+
+Now for 2023
+```{r}
+data_2023 <- readRDS("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/CleanederaRHData/ERA2023RHCorrected.RDS")
+#Create two other latitude and longitude columns rounded to the tenths place for merging
+data_2023$lon <- round(data_2023$Longitude, 1)
+data_2023$lat <- round(data_2023$Latitude, 1)
+data_2023 <- merge(data_2023, grid_ids, by = c("lon", "lat"))
+data_2023 <- data_2023[, -c(1,2)]
+#sum(is.na(data_2023))
+#No NAs
+#saveRDS(data_2023, "/Volumes/Seagate Portable Drive/ModelingData/RHDataForERAModel/RHDataIds2023.RDS")
+```
+
+
+
+

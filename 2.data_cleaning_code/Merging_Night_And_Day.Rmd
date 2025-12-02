@@ -1,0 +1,193 @@
+---
+title: "ERA5Manipulation"
+output: html_document
+date: "2024-04-27"
+---
+
+```{r}
+library(dplyr)
+```
+
+
+This R markdown file is for creating the structure of the R script that will process the ERA5 data
+
+
+Read in the ERA5 data for 2019
+```{r}
+eratemp2019 <- readRDS("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/ERA5TemperatureData/era5FullTemp2019.rds")
+
+#Get rid of the first column
+eratemp2019 <- eratemp2019[, -1]
+```
+
+
+Load in the dewpoint data
+```{r}
+eradewpoint2019 <- readRDS("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/ERA5DewPointData/era5FullDewPoint2019.rds")
+eradewpoint2019 <- eradewpoint2019[, -1]
+```
+
+Check the number of rows and the number of NAs. Seems like they are the same and have no NAs, which is what we expect.
+```{r}
+nrow(eratemp2019)
+nrow(eradewpoint2019)
+
+sum(is.na(eratemp2019))
+sum(is.na(eradewpoint2019))
+```
+
+Since these datasets are large, let's subset the first 1000000 rows of each and merge those
+```{r}
+eratemp2019sub <- eratemp2019[1:1000000,]
+eradewpoint2019sub <- eradewpoint2019[1:1000000,]
+```
+
+Now we try merging them
+```{r}
+eramerged <- merge(eratemp2019sub, eradewpoint2019sub, by.x = c("Date", "Hour", "Longitude", "Latitude"), by.y = c("Date", "Hour", "Longitude", "Latitude"))
+
+#Get the number of NAs
+sum(is.na(eramerged))
+```
+
+Check the measurements for 
+Temperature: 2019-01-01	1	-71.90292	41.38778	276.3193	276.2157
+Dewpoint: -71.90292	42.04585	273.5887	1	2019-01-01
+```{r}
+unique(eratemp2019sub$Latitude)
+eratemp2019sub[eratemp2019sub$Latitude == -41.38778,]
+eradewpoint2019sub
+```
+
+First we will convert the era5 temperature and dewpoint data from kelvin into celsius
+```{r}
+eramerged$DewPoint <- eramerged$DewPoint - 273.15
+eramerged$Temperature <- eramerged$Temperature - 273.15
+```
+
+Seems like we're unable to subset the data. This is most likely due to the actual longitude and latitude values having more decimal places than expected. Let us just calculate the relative humidity and then round the longitude and latitude later.
+```{r}
+#Calculate the relative humidity
+#Get the numerator
+numerator <- exp((17.625 * eramerged$DewPoint)/(243.04 + eramerged$DewPoint))
+
+denominator <- exp((17.625 * eramerged$Temperature)/(243.04 + eramerged$Temperature))
+
+#Now we calculate relative humidity
+eramerged$RelativeHumidity <- 100 * (numerator/denominator)
+
+#Let's get the summaries of the relative humidities
+summary(eramerged$RelativeHumidity)
+
+#We force all the values over 100 to be exactly 100
+eramerged$RelativeHumidity[eramerged$RelativeHumidity > 100] <- 100
+
+#So we've fixed it
+summary(eramerged$RelativeHumidity)
+```
+
+We now need to get the averages of relative humidity to obtain the daily daytime RH and the nighttime RH. Let us test generating the time.
+```{r}
+#We first need to standardize all of the hours by doing modulus 24
+eramerged$StandHour <- eramerged$Hour %% 24
+#Get the datetime string
+eramerged$datetime <- paste(eramerged$Date, paste0(eramerged$StandHour - 1, ":00:00"), sep = " ")
+
+eramerged$datetime <- as.POSIXct(eramerged$datetime, format = "%Y-%m-%d %H:%M:%S")
+
+eramerged$datetime <- format(eramerged$datetime, "%I %p")
+
+#It seems like every standhour of 0 has an NA datetime. We will manually set the NAs to "11 PM" since 24 as the hour means 11 PM
+eramerged$datetime[is.na(eramerged$datetime)] <- "11 PM"
+
+sum(is.na(eramerged))
+```
+
+
+Now we need to split up the dataframes based on day and night time
+```{r}
+daytimetemp <- eramerged[eramerged$datetime %in% c("08 AM", "09 AM", "10 AM", "11 AM", "12 PM", "01 PM", "02 PM", "03 PM", "04 PM", "05 PM", "06 PM", "07 PM" , "08 PM"), ]
+
+nighttimetemp <- eramerged[eramerged$datetime %in% c("08 PM", "09 PM", "10 PM", "11 PM", "12 AM", "01 AM", "02 AM", "03 AM", "04 AM", "05 AM", "06 AM", "07 AM", "08 AM"), ]
+
+unique(daytimetemp$datetime)
+unique(nighttimetemp$datetime)
+```
+
+
+Now we need to figure out a way to average based on each time
+```{r}
+#For daytime, we can just group by the date, pretty simple
+daytimeRel <- daytimetemp %>%
+  group_by(Longitude, Latitude, Date) %>%
+  summarize(RelativeHumidityDayMax = max(RelativeHumidity))
+
+#Now for the min
+daytimeRelMin <- daytimetemp %>%
+  group_by(Longitude, Latitude, Date) %>%
+  summarize(RelativeHumidityDayMin = min(RelativeHumidity))
+```
+
+Create a date of year column
+```{r}
+library(lubridate)
+daytimeRel$doy <- yday(daytimeRel$Date)
+daytimeRelMin$doy <- yday(daytimeRelMin$Date)
+
+#Now get the year
+daytimeRel$year <- year(daytimeRel$Date)
+daytimeRelMin$year <- year(daytimeRelMin$Date)
+```
+
+
+
+```{r}
+#The nighttime times are 8 PM to 8 AM, so the dates on day i should be 8 PM, 9 PM, 10 PM, 11 PM
+#And the dates on day i + 1 should be 12 AM, 1 AM, 2 AM, 3 AM, 4 AM, 5 AM, 6 AM, 7 AM, 8 AM
+nightDates <- unique(nighttimetemp$Date)
+
+#Create an empty data frame
+night_final <- data.frame()
+
+#Deal with the first case 
+first_night <- nighttimetemp[nighttimetemp$Date == nightDates[1], ]
+first_night$NightIndicator <- 1
+
+night_final <- rbind(night_final, first_night)
+
+#Subtract one since we are referencing one extra date
+for(i in 2:(length(nightDates)-1)){
+  #Get the first part of the night
+  night_data <- nighttimetemp[nighttimetemp$Date == nightDates[i], ]
+  
+  night_one <- night_data[night_data$datetime %in% c("08 PM", "09 PM", "10 PM", "11 PM"),]
+  night_one$NightIndicator <- i
+  
+  #Now we get the second part of the night
+  night_data <- nighttimetemp[nighttimetemp$Date == nightDates[i+1], ]
+  night_two <- night_data[night_data$datetime %in% c("12 AM", "01 AM", "02 AM", "03 AM", "04 AM", "05 AM", "06 AM", "07 AM", "08 AM"), ]
+  night_two$NightIndicator <- i
+  
+  night <- rbind(night_one, night_two)
+  
+  #Now we rbind it to the final data frame
+  night_final <- rbind(night_final, night)
+}
+```
+
+
+Now we want to get the minimum and maximum relative humidities for the nighttime through grouping on the night indicator, the longitude, latitude
+```{r}
+minNightRH <- night_final %>%
+  group_by(Latitude, Longitude, NightIndicator) %>%
+  summarise(minRH = min(RelativeHumidity), Date = first(Date))
+```
+
+```{r}
+40.95462	
+test <- night_final[night_final$Longitude < -73.64 & night_final$Longitude >-73.646,]
+test <- test[test$Latitude < 40.955 & test$Latitude > 40.954,]
+```
+
+
+

@@ -1,0 +1,178 @@
+---
+title: "MergingDaily"
+output: html_document
+date: "2024-04-27"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(dplyr)
+library(lubridate)
+```
+
+
+Read in the ERA5 data for 2019
+```{r}
+eratemp2019 <- readRDS("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/ERA5TemperatureData/era5FullTemp2019.rds")
+
+#Get rid of the first column
+eratemp2019 <- eratemp2019[, -1]
+```
+
+
+Load in the dewpoint data
+```{r}
+eradewpoint2019 <- readRDS("/Volumes/Seagate Portable Drive/0.raw_data/CleanedData/ERA5DewPointData/era5FullDewPoint2019.rds")
+eradewpoint2019 <- eradewpoint2019[, -1]
+```
+
+Check the number of rows and the number of NAs. Seems like they are the same and have no NAs, which is what we expect.
+```{r}
+nrow(eratemp2019)
+nrow(eradewpoint2019)
+
+sum(is.na(eratemp2019))
+sum(is.na(eradewpoint2019))
+```
+
+Since these datasets are large, let's subset the first 1000000 rows of each and merge those
+```{r}
+eratemp2019sub <- eratemp2019[1:1000000,]
+eradewpoint2019sub <- eradewpoint2019[1:1000000,]
+```
+
+Testing if the lat and lon values are the same
+```{r}
+eratest <- cbind(eratemp2019sub, eradewpoint2019sub)
+#See if the longitudes are equal
+cor(eratest[,1], eratest[,6])
+#See if the latitudes are equal
+cor(eratest[,2], eratest[,7])
+#See if the hours are equal
+cor(eratest[,4], eratest[,9])
+#See if the dates are equal, they are
+sum(eratest[, 5] != eratest[, 10])
+```
+
+We can get rid of the extra columns in longitude, latitude, hour, and date since we know they are equal
+```{r}
+eratest <- eratest[, c(1:5, 8)]
+```
+
+Now we try merging them
+```{r}
+eramerged <- merge(eratemp2019sub, eradewpoint2019sub, by.x = c("Date", "Hour", "Longitude", "Latitude"), by.y = c("Date", "Hour", "Longitude", "Latitude"))
+
+#Get the number of NAs
+sum(is.na(eramerged))
+```
+
+Check the measurements for 
+Temperature: 2019-01-01	1	-71.90292	41.38778	276.3193	276.2157
+Dewpoint: -71.90292	42.04585	273.5887	1	2019-01-01
+```{r}
+unique(eratemp2019sub$Latitude)
+eratemp2019sub[eratemp2019sub$Latitude == -41.38778,]
+eradewpoint2019sub
+```
+
+First we will convert the era5 temperature and dewpoint data from kelvin into celsius
+```{r}
+eramerged$DewPoint <- eramerged$DewPoint - 273.15
+eramerged$Temperature <- eramerged$Temperature - 273.15
+```
+
+Seems like we're unable to subset the data. This is most likely due to the actual longitude and latitude values having more decimal places than expected. Let us just calculate the relative humidity and then round the longitude and latitude later.
+```{r}
+#Calculate the relative humidity
+#Get the numerator
+numerator <- exp((17.625 * eramerged$DewPoint)/(243.04 + eramerged$DewPoint))
+
+denominator <- exp((17.625 * eramerged$Temperature)/(243.04 + eramerged$Temperature))
+
+#Now we calculate relative humidity
+eramerged$RelativeHumidity <- 100 * (numerator/denominator)
+
+#Let's get the summaries of the relative humidities
+summary(eramerged$RelativeHumidity)
+
+#We force all the values over 100 to be exactly 100
+eramerged$RelativeHumidity[eramerged$RelativeHumidity > 100] <- 100
+
+#So we've fixed it
+summary(eramerged$RelativeHumidity)
+```
+
+
+So we actually only need to obtain the daily min and daily max of the relative humidity per day
+```{r}
+RHera <- eramerged %>%
+  group_by(Longitude, Latitude, Date) %>%
+  summarise(minRH = min(RelativeHumidity), maxRH = max(RelativeHumidity))
+```
+
+Let's get the doy and year
+```{r}
+RHera$doy <- yday(RHera$Date)
+RHera$year <- year(RHera$Date)
+```
+
+NOTICE: We have now successfully completed the RHera data frame, now we need to incorporate era.id into the dataframe
+
+
+
+
+
+Now let's read in the satellite data
+```{r}
+satellite_data <- readRDS("/Volumes/Seagate Portable Drive/ModelingData/3.0.Scaled_Station_predictor_all.rds")
+```
+
+Let's isolate the variables we need, note that we can just train the model on our ERA5 data first and then load it into the satellite predictions
+```{r}
+grid_data <- unique(satellite_data[,c(1, 4, 5, 6, 24, 25)])
+
+```
+
+
+
+Let's import the dataframe with the grid.id and era.id references
+```{r}
+grid_era_codes <- readRDS("/Volumes/Seagate Portable Drive/ModelingData/8.2.ERA_grid_resample_MODIS_grids_withLonLat.rds")
+#Get rid of era.y, era.x, lat, and lon
+#grid_era_codes <- grid_era_codes[, 1:5]
+```
+
+
+We actually want to merge the grid_era_codes to the satellite codes 
+```{r}
+codes_latlon <- merge(satellite_data, grid_era_codes, by.x = c("grid.id", "era.id"), by.y = c("grid.id", "era.id"), all.x = TRUE)
+```
+
+```{r}
+#saveRDS(codes_latlon, "/Volumes/Seagate Portable Drive/ModelingData/satellite_data_with_latlon.RDS")
+
+#Get the number of NAs and see if they all come from STATION
+sum(is.na(codes_latlon))
+sum(is.na(codes_latlon$STATION))
+```
+
+
+Get rid of MOD_Day_lst, MOD_Night_lst, MYD_Day_lst, MYD_Night_lst, temperature.daily.max, temperature.daily.min, dp.daily.max, dp.daily.min
+```{r}
+codes_latlon <- codes_latlon[, c(1:8, 11, 12, 15:26, 31:33)]
+```
+
+
+So in the satellite dataframe, we have 30,505,156 rows. In RHera, we have 47,628 rows, but this is just a subset. We will merge the RHera into the satellite dataframe
+```{r}
+codes_latlon <- merge(codes_latlon, RHera, by.x = c("lon", "lat"), by.y = c("Longitude", "Latitude"), all = TRUE)
+```
+
+
+
+

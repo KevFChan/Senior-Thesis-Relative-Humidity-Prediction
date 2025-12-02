@@ -1,0 +1,162 @@
+---
+title: "MergingRHFromWeatherStations"
+output: html_document
+date: "2024-04-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Import libraries
+library(raster)
+library(sf)
+```
+
+```{r}
+#The goal of this file is to merge the satellite data together with my weather station
+satellite_data <- readRDS("/Volumes/Seagate Portable Drive/ModelingData/3.0.Scaled_Station_predictor_all.rds")
+length(unique())
+
+era_5 <- readRDS("/Volumes/Seagate Portable Drive/ModelingData/8.2.ERA_grid_resample_MODIS_grids_withLonLat.rds")
+
+RH_weather_station <- read.csv("/Volumes/Seagate Portable Drive/ModelingData/CleanedStationRelHumid.csv")
+RH_weather_station <- RH_weather_station[, -1]
+RH_weather_station$Date <- as.Date(RH_weather_station$Date, "%Y-%m-%d")
+```
+
+Let's look at the weather stations they have in common
+```{r}
+weather_stations <- intersect(satellite_data$STATION, RH_weather_station$STATION)
+```
+
+
+We will match the weather station variables based on the STATION column and the date columns
+```{r}
+length(unique(satellite_data$grid.id))
+full_satellite_data <- merge(satellite_data, RH_weather_station, by.x = c("STATION", "date"), by.y = c("STATION", "Date"))
+```
+
+Now let's save the full data frame as an RDS
+```{r}
+#saveRDS(full_satellite_data, "/Volumes/Seagate Portable Drive/ModelingData/RFData.rds")
+```
+
+```{r}
+full_satellite_data
+```
+
+Let us create a spatial plot of the weather station locations
+```{r}
+library(tigris)
+library(sp)
+options(tigris_use_cache = TRUE)
+
+#Subset to get the CT polygon data
+ct_shp <- tracts(state = "CT")
+#Get the lon-lat crs
+lon_lat_crs <- st_crs(ct_shp)
+#CRS of the shapefile
+crsSH <- CRS("+init=epsg:4269")
+ct_shp <- subset(ct_shp, ALAND > 0)
+
+weather_station_locs <- full_satellite_data[, c("STATION", "lon", "lat")]
+#Deduplicate
+weather_station_locs <- weather_station_locs[!duplicated(weather_station_locs$STATION), ]
+
+weather_stations_sf <- st_as_sf(weather_station_locs, coords = c("lon", "lat"), crs = st_crs(ct_shp))
+```
+
+Now we plot the map
+```{r}
+library(ggplot2)
+weather_stat_plot <- ggplot() +
+      geom_sf(data = ct_shp) +
+      geom_sf(data = weather_stations_sf, color = "red", size = 3) +
+      theme_minimal() +
+      coord_sf(xlim = c(-74, -71.8), ylim = c(40.9, 42.1))
+weather_stat_plot
+```
+
+Add a compass and a scale
+```{r}
+finalMap <- weather_stat_plot +
+  ggspatial::annotation_scale(
+    location = "tr",
+    pad_x = unit(0.5, "in"),
+    pad_y = unit(3.8, "in"),
+    bar_cols = c("grey60", "white")
+  ) +
+  ggspatial::annotation_north_arrow(
+    location = "tr", which_north = "true",
+    pad_x = unit(0.9, "in"), pad_y = unit(3, "in"),
+    style = ggspatial::north_arrow_nautical(
+      fill = c("grey40", "white"),
+      line_col = "grey20",
+    )
+  )
+
+finalMap
+```
+
+We now want to calculate the summary statistics for each of the variables
+```{r}
+summary_data <- full_satellite_data[, c("MOD_day_forRF", "MOD_night_forRF", "MYD_day_forRF", "MYD_night_forRF", "ndvi", "LUC_veg", "LUC_water", "LUC_urban", "LUC_barren", "LUC_snow", "elevation")]
+```
+
+Now we get the info for MOD11A1 data
+```{r}
+summary(summary_data$MOD_day_forRF)
+round(sd(summary_data$MOD_day_forRF), 3)
+```
+
+```{r}
+round(summary(summary_data$MOD_night_forRF), 2)
+round(sd(summary_data$MOD_night_forRF), 2)
+```
+
+
+```{r}
+round(summary(summary_data$MYD_day_forRF), 2)
+round(sd(summary_data$MYD_day_forRF), 2)
+```
+
+```{r}
+round(summary(summary_data$MYD_night_forRF), 2)
+round(sd(summary_data$MYD_night_forRF), 2)
+```
+
+```{r}
+round(summary(summary_data$ndvi), 2)
+round(sd(summary_data$ndvi), 2)
+```
+
+
+```{r}
+round(summary(summary_data$LUC_veg), 2)
+round(sd(summary_data$LUC_veg), 2)
+
+round(summary(summary_data$LUC_water), 2)
+round(sd(summary_data$LUC_water), 2)
+
+round(summary(summary_data$LUC_urban), 2)
+round(sd(summary_data$LUC_urban), 2)
+
+round(summary(summary_data$LUC_barren), 2)
+round(sd(summary_data$LUC_barren), 2)
+
+round(summary(summary_data$LUC_snow), 2)
+round(sd(summary_data$LUC_snow), 2)
+```
+
+
+```{r}
+round(summary(summary_data$elevation), 2)
+round(sd(summary_data$elevation), 2)
+```
+
+
+
+
+
