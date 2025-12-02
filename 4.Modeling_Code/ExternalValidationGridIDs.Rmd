@@ -1,0 +1,86 @@
+---
+title: "ExternalValidation"
+output: html_document
+date: "2024-04-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(raster)
+library(sf)
+```
+
+```{r}
+grid_ids <- readRDS("/Volumes/Seagate Portable Drive/ModelingData/8.2.ERA_grid_resample_MODIS_grids_withLonLat.rds")
+```
+
+
+```{r}
+lonCoords <- c("-72.929", "-72.925")
+latCoords <- c("41.311", "41.340")
+name <- c("Morse", "KyleHouse")
+external_coords <- cbind(lonCoords, latCoords)
+external_coords <- cbind(name, external_coords)
+external_coords <- data.frame(external_coords)
+
+#Convert to numeric
+external_coords$latCoords <- as.numeric(external_coords$latCoords)
+external_coords$lonCoords <- as.numeric(external_coords$lonCoords)
+```
+
+Now we want to project to sinusoidal
+```{r}
+#We need to load in a sample LST file for resampling
+lst_sample <- "/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/MOD11A1.061_LST_Day_1km_doy2019028_aid0001.tif"
+lst_raster <- raster::brick(lst_sample)
+
+#And a ERA5Dataset to borrow the CRS
+era <- raster::brick("/Volumes/Seagate Portable Drive/0.raw_data/0.3.ERA5/dp_2019.grib")
+```
+
+```{r}
+external_sinu <- st_as_sf(external_coords, coords = c("lonCoords", "latCoords"))
+#Currently latitude and longitude
+external_sinu <- st_set_crs(external_sinu, crs(era))
+
+#Transform
+external_sinu <- st_transform(external_sinu, crs = crs(lst_raster))
+external_sinu_points <- data.frame(st_coordinates(external_sinu))
+```
+
+
+```{r}
+lonlatExt <- data.frame(cbind(name, lonCoords, latCoords))
+lonlatExt$lonCoords <- round(as.numeric(lonlatExt$lonCoords), 1)
+lonlatExt$latCoords <- round(as.numeric(lonlatExt$latCoords), 1)
+```
+
+Great, now we can subset based on the x and y values
+```{r}
+external_grid <- grid_ids[grid_ids$lon == -72.9 & grid_ids$lat == 41.3, ]
+```
+
+```{r}
+external_grid <- external_grid[external_grid$x > -6091239, ]
+
+#Now for y
+external_grid <- external_grid[external_grid$y > 4593578,]
+```
+
+A more forceful method to narrow down the candidates for Kyle's house
+```{r}
+external_grid[startsWith(as.character(external_grid$x), "-6088"), ]
+```
+
+Now do the same for Morse college
+```{r}
+external_grid[startsWith(as.character(external_grid$x), "-6091"), ]
+```
+
+```{r}
+external_sinu_points
+```
+

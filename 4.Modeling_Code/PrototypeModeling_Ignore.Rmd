@@ -1,0 +1,32 @@
+---
+title: "satellite_modeling"
+output: html_document
+date: "2024-04-29"
+---
+
+This will be the RMD for the final relative humidity generation
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+We should really be using the dataset with the weather station data
+```{r}
+satellite_data <- readRDS("/Volumes/Seagate Portable Drive/ModelingData/3.0.Scaled_Station_predictor_all.rds")
+head(satellite_data)
+```
+
+
+
+We want to import the 24 models
+
+We want to get the predictions
+
+We want to evaluate the predictions on the weather stations
+
+
+External Validation
+```{r}
+external_Morse <- satellite_data[satellite_data$grid.id == "172_745", ]
+external_Hamden <- satellite_data[satellite_data$grid.id == "392_525",]
+```
+

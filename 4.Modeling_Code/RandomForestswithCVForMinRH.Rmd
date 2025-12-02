@@ -1,0 +1,178 @@
+---
+title: "RandomForestMinMaxRHCV"
+output: html_document
+date: "2024-04-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Import the packages
+library(randomForest)
+library(dplyr)
+library(dismo)
+library(doParallel)
+library(foreach)
+```
+
+Load in the data and get rid of the unwanted columns
+```{r}
+rf_data <- readRDS("/Volumes/Seagate Portable Drive/ModelingData/RFData.rds")
+rf_data <- subset(rf_data, select = -c(MOD_Day_lst, MOD_Night_lst, MYD_Day_lst, MYD_Night_lst))
+rf_data <- data.frame(rf_data)
+
+#Filter out the NAs
+rf_data <- rf_data %>% 
+  filter(complete.cases(.))
+sum(is.na(rf_data))
+```
+
+
+Create a function to calculate RMSE
+```{r}
+RMSE <- function(observed, predicted){
+  return(sqrt(mean((observed - predicted)^2, na.rm = TRUE)))
+}
+
+
+SpatialTemporal_CV_minRH <- function(testdata, model){
+  
+  #We first want to get the prediction values
+  testdata$predictMinRHs <- predict(model, newdata = testdata, allow.new.levels = TRUE)
+  
+  #Part B
+  #Calculate the temporal R2 by regressing delta min RH against Delta predicted min RH
+  #Delta min RH is the difference between the actual min RH in place i at time j and the annual mean min RH at that location
+  annual_obs_minRHmean <- aggregate(testdata$MinRelHumid, by = list(testdata$grid.id, testdata$year),
+                                    FUN = function(x){mean(x, na.rm = TRUE)})
+  names(annual_obs_minRHmean) <- c("grid.id", "year", "Annual_Obs_MinRHMean")
+  
+  #We now want to attach the minRHmean to our data frame, but note that just using merge reorders our data
+  #We essentially want every row in the original dataframe to have its own relative humidity mean for that year
+  testdata.merge <- merge(testdata, annual_obs_minRHmean, by = c("grid.id", "year"), all = TRUE, sort = FALSE)
+  testdata.merge$Delta.minRH <- testdata.merge$MinRelHumid - testdata.merge$Annual_Obs_MinRHMean
+  
+  #Calculate the delta predicted
+  annual_predict_minRH <- aggregate(testdata.merge$predictMinRHs, by = list(testdata.merge$grid.id, testdata.merge$year), 
+                                    FUN = function(x){mean(x, na.rm = TRUE)})
+  names(annual_predict_minRH) <- c("grid.id", "year", "Annual_Predict_MinRHMean")
+  #Now we want to attach and merge
+  Temporal.vdata <- merge(testdata.merge, annual_predict_minRH, by = c("grid.id", "year"), all = TRUE, sort = FALSE)
+  Temporal.vdata$Delta.minRHpredict <- Temporal.vdata$predictMinRHs - Temporal.vdata$Annual_Predict_MinRHMean
+  
+  #Part C
+  #Now we perform the linear regression to get the temporal R2
+  Temporal.vmodel <- lm(Delta.minRH ~ Delta.minRHpredict, data = Temporal.vdata)
+  Temporal.vR2 <- summary(Temporal.vmodel)$r.squared
+  
+  #Get the RMSE
+  Temporal.RMSE <- RMSE(Temporal.vdata$Delta.minRH, Temporal.vdata$Delta.minRHpredict)
+  
+  
+  #Now we get the spatial statistics
+  #Merge the Annual Observations and the Annual Predict
+  Spatial.vdata <- merge(annual_obs_minRHmean, annual_predict_minRH, by = c("grid.id", "year"), all = TRUE)
+  
+  Spatial.vmodel <- lm(Annual_Obs_MinRHMean ~ Annual_Predict_MinRHMean, data = Spatial.vdata)
+  Spatial.vR2 <- summary(Spatial.vmodel)$r.squared
+  
+  Spatial.RMSE <- RMSE(Spatial.vdata$Annual_Obs_MinRHMean, Spatial.vdata$Annual_Predict_MinRHMean)
+  
+  
+  #Obtain the total statistics
+  Total.vmodel <- lm(MinRelHumid ~ predictMinRHs, data = Temporal.vdata)
+  Total.vR2 <- summary(Total.vmodel)$r.squared
+  #RMSE
+  Total.RMSE <- RMSE(Temporal.vdata$MinRelHumid, Temporal.vdata$predictMinRHs)
+  
+  #Return the results
+  result <- data.frame(R2.total = Total.vR2, R2.spatial = Spatial.vR2, R2.temporal = Temporal.vR2,
+                      RMSE.total = Total.RMSE, RMSE.spatial = Spatial.RMSE, RMSE.temporal = Temporal.RMSE)
+  return(result)
+}
+```
+
+Let us try omitting the year 2023
+```{r}
+rf_data <- rf_data[rf_data$year != 2023, ]
+rf_data$date.f <- as.factor(rf_data$date)
+rf_data$rf.prediction <- NULL
+#Scramble the data frame
+data.cv <- rf_data[sample(nrow(rf_data)), ]
+head(data.cv)
+```
+
+Now we perform the 10-fold cross validation. I think we need to do cross-validation on the weather stations We first create a dataframe to hold all of the cross validation results
+```{r}
+nfold <- 10
+station.f <- as.character(unique(data.cv$STATION))
+k <- kfold(station.f, 10)
+
+nrow(data.cv[which(data.cv$STATION %in% station.f[k==1]), ])
+finaldata <- data.frame()
+
+CV.rf <- matrix(rep(NA, nfold*6), ncol = 6)
+colnames(CV.rf) <- c("R2.total", "R2.spatial", "R2.temporal", "RMSE.total", "RMSE.spatial", "RMSE.temporal")
+CV.rf <- as.data.frame(CV.rf)
+```
+
+Now let us perform the cross validation
+```{r}
+cl <- makeCluster(8)
+registerDoParallel(cl)
+
+CV.rf <- foreach(item = 1:nfold, .combine = rbind) %dopar% {
+  folds <- seq(1, nfold)
+  folds <- folds[-item]
+  data.validation <- data.cv[which(data.cv$STATION %in% station.f[k == item]),]
+  data.train <- data.cv[which(data.cv$STATION %in% station.f[k !=item]), ]
+  
+  RF1 <- randomForest::randomForest(MinRelHumid ~ MOD_day_forRF + MOD_night_forRF + MYD_day_forRF + MYD_night_forRF + ndvi + LUC_veg + LUC_water + LUC_urban + LUC_barren + LUC_snow + elevation + lon + lat + doy + year, data = data.train, importance = TRUE, na.action = na.omit)
+  #Prediction
+  RF1.prediction <- predict(RF1, newdata = data.validation, allow.new.levels = TRUE)
+  #Attach the prediction to data.validation or the data that has been left out
+  data.validation$RF1.prediction <- RF1.prediction
+  return(SpatialTemporal_CV_minRH(testdata = data.validation, model = RF1))
+}
+
+stopCluster(cl)
+```
+
+Get the means for the random forest models
+```{r}
+temp <- as.data.frame(t(colMeans(CV.rf, na.rm=T)), nrow=1)
+```
+
+
+
+```{r}
+write.csv(temp, "/Volumes/Seagate Portable Drive/ModelingResults/RandomForestsModel5.csv")
+```
+
+
+
+
+The original for loop
+```{r}
+for(i in 1:nfold){
+  cat(paste0("fold number ", i))
+  cat("\n")
+  folds <- seq(1, nfold)
+  folds <- folds[-i]
+  data.validation <- data.cv[which(data.cv$grid.id %in% gridid.f[k == i]),]
+  data.train <- data.cv[which(data.cv$grid.id %in% gridid.f[k !=i]), ]
+  
+  RF1 <- randomForest(MinRelHumid ~ MOD_day_forRF + MOD_night_forRF + MYD_day_forRF + MYD_night_forRF + ndvi + LUC_veg + LUC_water + LUC_urban + LUC_barren + LUC_snow + elevation + lon + lat + doy + year, data = data.train, importance = TRUE, na.action = na.omit)
+  #Prediction
+  RF1.prediction <- predict(RF1, newdata = data.validation, allow.new.levels = TRUE)
+  #Attach the prediction to data.validation or the data that has been left out
+  data.validation$RF1.prediction <- RF1.prediction
+  CV.rf[i, ] <- SpatialTemporal_CV_minRH(testdata = data.validation, model = RF1)
+  cat(paste0("Finished ", i, " round"))
+}
+
+```
+
+

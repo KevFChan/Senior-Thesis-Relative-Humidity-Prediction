@@ -1,0 +1,267 @@
+---
+title: "Linear_Modeling"
+output: html_document
+date: "2024-11-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The purpose of this Rmd file is to use the random forest predicted minimum relative humidity and maximum relative humidity in the lmer mixed effects model to predict hourly relative humidity. We are able to do this because we have trained the linear models on the HPC.
+
+```{r}
+library(lme4)
+library(tidyr)
+library(stringr)
+library(dplyr)
+```
+
+
+```{r}
+data <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/RF_predicted_data_with_PSW_Color.rds")
+
+#Convert era.id, doy, and year into categorical factors
+data$doy <- factor(data$doy, ordered = TRUE, levels = unique(data$doy[order(data$doy, decreasing = FALSE)]))
+data$year <- factor(data$year, ordered = TRUE, levels = unique(data$year[order(data$year, decreasing = FALSE)]))
+data$era.id <- factor(data$era.id)
+
+data$date.f <- as.Date(data$date.f, "%Y-%m-%d")
+```
+
+
+Cut down on the unnecessary variables and rename some of these variables so we can plug it into our model
+```{r}
+names(data)
+data <- data[, -c(9:20, 23:26, 29:46)]
+
+names(data) <- c("Date", "x", "y", "grid.id", "era.id", "STATION", "year", "doy", "lon", "lat", "ObsMaxRH", "ObsMinRH", "date.f", "maxRH", "minRH")
+```
+
+Check if date and date.f are equal, if so then we can delete date.f and keep our date column
+```{r}
+sum(data$Date != data$date.f)
+data <- data[, -13]
+```
+
+We need to pass the data into the variable name we used on our original training of the models
+```{r}
+hour2 <- data
+```
+
+
+Now we load in the models
+```{r}
+model_12AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_12AM.Rdata")
+predictions_12AM <- predict(get(model_12AM), newdata = hour2)
+
+model_1AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_1AM.Rdata")
+predictions_1AM <- predict(get(model_1AM), newdata = hour2)
+
+model_2AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_2AM.Rdata")
+predictions_2AM <- predict(get(model_2AM), newdata = hour2)
+
+model_3AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_3AM.Rdata")
+predictions_3AM <- predict(get(model_3AM), newdata = hour2)
+
+model_4AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_4AM.Rdata")
+predictions_4AM <- predict(get(model_4AM), newdata = hour2)
+
+model_5AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_5AM.Rdata")
+predictions_5AM <- predict(get(model_5AM), newdata = hour2)
+
+model_6AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_6AM.Rdata")
+predictions_6AM <- predict(get(model_6AM), newdata = hour2)
+
+model_7AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_7AM.Rdata")
+predictions_7AM <- predict(get(model_7AM), newdata = hour2)
+
+model_8AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_8AM.Rdata")
+predictions_8AM <- predict(get(model_8AM), newdata = hour2)
+
+model_9AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_9AM.Rdata")
+predictions_9AM <- predict(get(model_9AM), newdata = hour2)
+
+model_10AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_10AM.Rdata")
+predictions_10AM <- predict(get(model_10AM), newdata = hour2)
+
+model_11AM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_11AM.Rdata")
+predictions_11AM <- predict(get(model_11AM), newdata = hour2)
+
+model_12PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_12PM.Rdata")
+predictions_12PM <- predict(get(model_12PM), newdata = hour2)
+
+model_1PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_1PM.Rdata")
+predictions_1PM <- predict(get(model_1PM), newdata = hour2)
+
+model_2PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_2PM.Rdata")
+predictions_2PM <- predict(get(model_2PM), newdata = hour2)
+
+model_3PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_3PM.Rdata")
+predictions_3PM <- predict(get(model_3PM), newdata = hour2)
+
+model_4PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_4PM.Rdata")
+predictions_4PM <- predict(get(model_4PM), newdata = hour2)
+
+model_5PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_5PM.Rdata")
+predictions_5PM <- predict(get(model_5PM), newdata = hour2)
+
+model_6PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_6PM.Rdata")
+predictions_6PM <- predict(get(model_6PM), newdata = hour2)
+
+model_7PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_7PM.Rdata")
+predictions_7PM <- predict(get(model_7PM), newdata = hour2)
+
+model_8PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_8PM.Rdata")
+predictions_8PM <- predict(get(model_8PM), newdata = hour2)
+
+model_9PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_9PM.Rdata")
+predictions_9PM <- predict(get(model_9PM), newdata = hour2)
+
+model_10PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_10PM.Rdata")
+predictions_10PM <- predict(get(model_10PM), newdata = hour2)
+
+model_11PM <- load("/Volumes/Seagate Portable Drive/5.modeling_data/LmerModels/lmeModel_11PM.Rdata")
+predictions_11PM <- predict(get(model_11PM), newdata = hour2)
+```
+
+
+Combine all of these predictions through cbind
+```{r}
+lmer_predict_data <- cbind(data, predictions_12AM, predictions_1AM, predictions_2AM, predictions_3AM, predictions_4AM, predictions_5AM, predictions_6AM, predictions_7AM, predictions_8AM, predictions_9AM, predictions_10AM, predictions_11AM, predictions_12PM, predictions_1PM, predictions_2PM, predictions_3PM, predictions_4PM, predictions_5PM, predictions_6PM, predictions_7PM, predictions_8PM, predictions_9PM, predictions_10PM, predictions_11PM)
+```
+
+
+Now let's format the lmer_predict_data
+```{r}
+lmer_predict_data <- pivot_longer(lmer_predict_data, cols = starts_with("predictions_"),
+                                  names_to = "Hour", 
+                                  names_prefix = "predictions_",
+                                  values_to = "Prediction")
+
+#Turn the hour into a factor
+lmer_predict_data$Hour <- factor(lmer_predict_data$Hour, ordered = TRUE, levels = c("12AM", "1AM", "2AM", "3AM", "4AM", "5AM", "6AM", "7AM", "8AM", "9AM", "10AM", "11AM", "12PM", "1PM", "2PM", "3PM", "4PM", "5PM", "6PM", "7PM", "8PM", "9PM", "10PM", "11PM"))
+
+#Now we relabel
+levels(lmer_predict_data$Hour) <- c(0:23)
+```
+
+
+
+Now we have the data in the format we want it to be. Let's load in the weather station data and merge them. We do need to perform some preprocessing on this though
+```{r}
+weather_stats <- read.csv("/Volumes/Seagate Portable Drive/Weather_Station_Data_Cleaning_Code/RelativeHumidityWeatherStationData.csv")
+```
+
+We need to split the Date into date and time
+```{r}
+split_datetime <- str_split(weather_stats$DATE, "T")
+weather_stats$DATE <- sapply(split_datetime, function(x) x[1])
+weather_stats$DATE <- as.Date(weather_stats$DATE, "%Y-%m-%d")
+
+weather_stats$Hour <- sapply(split_datetime, function(x) as.numeric(sub("^(\\d{2}).*", "\\1", x[2])))
+#Factorize the hour
+weather_stats$Hour <- as.factor(weather_stats$Hour)
+
+names(weather_stats)
+names(lmer_predict_data)
+```
+
+Lmer_predict_data had 1,084,880 rows and once we merge, we now have 528,820 so half disappeared. When we get rid of NAs, we have 528,191 rows
+```{r}
+final_frame <- merge(lmer_predict_data, weather_stats, by.x = c("STATION", "Date", "Hour"), by.y = c("STATION", "DATE", "Hour"), all.x = TRUE)
+final_frame <- final_frame[!is.na(final_frame$HourlyRelativeHumidity),]
+nrow(final_frame)
+
+unique(weather_stats$Hour)
+```
+
+```{r}
+#Convert the Hourly Relative Humidity into a numeric, but before that we need to get rid of instances with "" or "*"
+final_frame <- final_frame[!final_frame$HourlyRelativeHumidity %in% c("", "*"), ]
+nrow(final_frame)
+
+final_frame$HourlyRelativeHumidity <- as.numeric(final_frame$HourlyRelativeHumidity)
+unique(final_frame$HourlyRelativeHumidity)
+```
+
+RMSE calculation
+```{r}
+RMSE <- function(observed, predicted){
+  return(sqrt(mean((observed - predicted)^2, na.rm = TRUE)))
+}
+```
+
+The moment of truth
+```{r}
+cor(final_frame$Prediction, final_frame$HourlyRelativeHumidity)
+RMSE(final_frame$Prediction, final_frame$HourlyRelativeHumidity)
+```
+
+
+```{r}
+SpatialTemporal_CV_RH <- function(data){
+  #Part B
+  #Calculate the temporal R2 by regressing delta min RH against Delta predicted min RH
+  #Delta min RH is the difference between the actual min RH in place i at time j and the annual mean min RH at that location
+  annual_obs_RHmean <- aggregate(data$HourlyRelativeHumidity, by = list(data$grid.id, data$year),
+                                    FUN = function(x){mean(x, na.rm = TRUE)})
+  names(annual_obs_RHmean) <- c("grid.id", "year", "Annual_Obs_RHMean")
+  
+  #We now want to attach the minRHmean to our data frame, but note that just using merge reorders our data
+  #We essentially want every row in the original dataframe to have its own relative humidity mean for that year
+  data.merge <- merge(data, annual_obs_RHmean, by = c("grid.id", "year"), all = TRUE, sort = FALSE)
+  data.merge$Delta.RH <- data.merge$HourlyRelativeHumidity - data.merge$Annual_Obs_RHMean
+  
+  #Calculate the delta predicted
+  annual_predict_meanRH <- aggregate(data.merge$Prediction, by = list(data.merge$grid.id, data.merge$year), 
+                                    FUN = function(x){mean(x, na.rm = TRUE)})
+  names(annual_predict_meanRH) <- c("grid.id", "year", "Annual_Predict_RHMean")
+  #Now we want to attach and merge
+  Temporal.vdata <- merge(data.merge, annual_predict_meanRH, by = c("grid.id", "year"), all = TRUE, sort = FALSE)
+  Temporal.vdata$Delta.RHpredict <- Temporal.vdata$Prediction - Temporal.vdata$Annual_Predict_RHMean
+  
+  #Part C
+  #Now we perform the linear regression to get the temporal R2
+  Temporal.vmodel <- lm(Delta.RH ~ Delta.RHpredict, data = Temporal.vdata)
+  Temporal.vR2 <- summary(Temporal.vmodel)$r.squared
+  #Temporal.vR2 <- cor(Temporal.vdata$Delta.RH, Temporal.vdata$Delta.RHpredict)
+  
+  #Get the RMSE
+  Temporal.RMSE <- RMSE(Temporal.vdata$Delta.RH, Temporal.vdata$Delta.RHpredict)
+  
+  
+  #Now we get the spatial statistics
+  #Merge the Annual Observations and the Annual Predict
+  Spatial.vdata <- merge(annual_obs_RHmean, annual_predict_meanRH, by = c("grid.id", "year"), all = TRUE)
+  
+  Spatial.vmodel <- lm(Annual_Obs_RHMean ~ Annual_Predict_RHMean, data = Spatial.vdata)
+  Spatial.vR2 <- summary(Spatial.vmodel)$r.squared
+  #Spatial.vR2 <- cor(Spatial.vdata$Annual_Obs_RHMean, Spatial.vdata$Annual_Predict_RHMean)
+  
+  Spatial.RMSE <- RMSE(Spatial.vdata$Annual_Obs_RHMean, Spatial.vdata$Annual_Predict_RHMean)
+  
+  
+  #Obtain the total statistics
+  Total.vmodel <- lm(HourlyRelativeHumidity ~ Prediction, data = Temporal.vdata)
+  Total.vR2 <- summary(Total.vmodel)$r.squared
+  #RMSE
+  Total.RMSE <- RMSE(Temporal.vdata$HourlyRelativeHumidity, Temporal.vdata$Prediction)
+  
+  #Return the results
+  result <- data.frame(R2.total = Total.vR2, R2.spatial = Spatial.vR2, R2.temporal = Temporal.vR2,
+                      RMSE.total = Total.RMSE, RMSE.spatial = Spatial.RMSE, RMSE.temporal = Temporal.RMSE)
+  return(result)
+}
+
+SpatialTemporal_CV_RH(final_frame)
+```
+
+```{r}
+(Total.vmodel <- lm(HourlyRelativeHumidity ~ Prediction, data = final_frame))
+(Total.vR2 <- summary(Total.vmodel)$r.squared)
+```
+
+
+
+

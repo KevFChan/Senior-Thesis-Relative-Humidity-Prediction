@@ -1,0 +1,43 @@
+---
+title: "Feglm_Single_Hour_Modeling"
+output: html_document
+date: "2024-11-12"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This Rmd will attempt to train the ERA hourly dewpoint values using a single predictor in the data set as the value
+```{r}
+library(foreach)
+library(doParallel)
+library(fixest)
+```
+
+Now load in the data
+```{r}
+#Read in the full dataset
+era_data <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/5.1.Full_ERA_Data_Frame.RDS")
+
+#Convert year and id into factors
+era_data$year <- as.factor(era_data$year)
+era_data$era.id <- as.factor(era_data$era.id)
+```
+
+Now let's create two models. One with hour as a variable, one with hour as an interaction. These are both to try but I do not have cluster access
+```{r}
+feglm_model_1 <- feglm(RelativeHumidity ~ maxRH*doy + maxRH*year + maxRH*era.id +
+                         minRH*doy + minRH*year + minRH*era.id + Hour, data = era_data)
+
+feglm_model_2 <- feglm(RelativeHumidity ~ maxRH*doy + maxRH*year + maxRH*era.id + maxRH*Hour +
+                         minRH*doy + minRH*year + minRH*era.id + minRH*Hour, data = era_data)
+```
+
+
+
+
+
+
+
+

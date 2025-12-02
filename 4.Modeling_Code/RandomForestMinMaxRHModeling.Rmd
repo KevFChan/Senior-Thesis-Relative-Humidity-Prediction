@@ -1,0 +1,85 @@
+---
+title: "RandomForestMinMaxRHModeling"
+output: html_document
+date: "2024-04-24"
+---
+
+This code will run the random forests modeling
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Import the packages
+library(randomForest)
+library(dplyr)
+```
+
+Load in the data
+```{r}
+rf_data <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/RFData.rds")
+```
+
+Let's get rid of the unwanted columns
+```{r}
+rf_data <- subset(rf_data, select = -c(MOD_Day_lst, MOD_Night_lst, MYD_Day_lst, MYD_Night_lst))
+rf_data <- data.frame(rf_data)
+```
+
+Filter out the NAs. Gets rid of 22 rows 
+```{r}
+rf_data <- rf_data %>% 
+  filter(complete.cases(.))
+sum(is.na(rf_data))
+```
+
+
+We now create the random forest for RHmin
+```{r}
+RF1 <- randomForest(MinRelHumid ~ MOD_day_forRF + MOD_night_forRF + MYD_day_forRF + MYD_night_forRF + ndvi + LUC_veg + LUC_water + LUC_urban + LUC_barren + LUC_snow + elevation + lon + lat + doy + year, data = rf_data, importance = TRUE, na.action = na.omit)
+print(RF1)
+```
+
+Create a variable importance plot
+```{r}
+varImpPlot(RF1, main = "Random Forest Variable Importance for Minimum Relative Humidity")
+```
+
+Let's try date instead of doy, the result should be the same
+```{r}
+RF2 <- randomForest(MinRelHumid ~ MOD_day_forRF + MOD_night_forRF + MYD_day_forRF + MYD_night_forRF + ndvi + LUC_veg + LUC_water + LUC_urban + LUC_barren + LUC_snow + elevation + lon + lat + date + year, data = rf_data, importance = TRUE, na.action = na.omit)
+print(RF2)
+varImpPlot(RF2, main = "Random Forest 2 Variable Importance for Minimum Relative Humidity")
+```
+
+
+
+Let's try a model without the year 2023
+```{r}
+rf3_data <- rf_data[rf_data$year != 2023, ]
+RF3 <- randomForest(MinRelHumid ~ MOD_day_forRF + MOD_night_forRF + MYD_day_forRF + MYD_night_forRF + ndvi + LUC_veg + LUC_water + LUC_urban + LUC_barren + LUC_snow + elevation + lon + lat + date + year, data = rf3_data, importance = TRUE, na.action = na.omit)
+print(RF3)
+varImpPlot(RF3, main = "Random Forest 3 Variable Importance for Minimum Relative Humidity")
+```
+
+
+Note that we are using the model with 2023 left out
+```{r}
+#Now we get the predictions
+min_RH_predictions <- predict(RF3, newdata = rf_data, allow.new.levels = TRUE)
+
+#Add it to the data
+rf_data$PredMinRH <- min_RH_predictions
+
+#Try with RF1 since that has a higher variance explained score
+min_RH_predictions_RF1 <- predict(RF1, newdata = rf_data, allow.new.levels = TRUE)
+rf_data$PredMinRHRF1 <- min_RH_predictions_RF1
+```
+  
+  
+Let's get the R-squared
+```{r}
+cor(rf_data$MinRelHumid, rf_data$PredMinRH)
+cor(rf_data$MinRelHumid, rf_data$PredMinRHRF1)
+```
+

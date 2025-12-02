@@ -1,0 +1,122 @@
+---
+title: "RF_Feglm_Models_2"
+output: html_document
+date: "2024-11-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The purpose of this Rmd file is to use the random forest predicted minimum relative humidity and maximum relative humidity in the feglm fixed effects model to predict hourly relative humidity. We are able to do this because we have trained the linear models on the HPC.
+
+```{r}
+library(fixest)
+library(tidyr)
+library(stringr)
+library(dplyr)
+library(doParallel)
+library(foreach)
+```
+
+
+```{r}
+data <- readRDS("/Volumes/Seagate Portable Drive/5.modeling_data/RF_predicted_data_with_PSW_Color.rds")
+
+#Convert era.id, doy, and year into categorical factors
+data$doy <- factor(data$doy, ordered = TRUE, levels = unique(data$doy[order(data$doy, decreasing = FALSE)]))
+data$year <- factor(data$year, ordered = TRUE, levels = unique(data$year[order(data$year, decreasing = FALSE)]))
+data$era.id <- factor(data$era.id)
+
+data$date.f <- as.Date(data$date.f, "%Y-%m-%d")
+```
+
+Let's get the similarity scores for fun
+```{r}
+RMSE <- function(observed, predicted){
+  return(sqrt(mean((observed - predicted)^2, na.rm = TRUE)))
+}
+
+cor(data$MaxRelHumid, data$Max_RH_Predicted)^2
+cor(data$MinRelHumid, data$Min_RH_Predicted)^2
+
+RMSE(data$MaxRelHumid, data$Max_RH_Predicted)
+RMSE(data$MinRelHumid, data$Min_RH_Predicted)
+```
+
+Cut down on the unnecessary variables and rename some of these variables so we can plug it into our model
+```{r}
+names(data)
+data <- data[, -c(9:20, 23:26, 29:46)]
+
+names(data) <- c("Date", "x", "y", "grid.id", "era.id", "STATION", "year", "doy", "lon", "lat", "ObsMaxRH", "ObsMinRH", "date.f", "maxRH", "minRH")
+```
+
+Check if date and date.f are equal, if so then we can delete date.f and keep our date column
+```{r}
+sum(data$Date != data$date.f)
+data <- data[, -13]
+```
+
+
+We need to pass the data into the variable name we used on our original training of the models
+```{r}
+hour1 <- data
+hour2 <- data
+
+#unique(data$doy)
+```
+
+
+We want to create a loop using parallel processing where we chunk the data and get the models for each hour. Another alternative is training the model by using month and day as separate values or even an interaction term
+```{r}
+times <- c("12AM", "1AM", "2AM", "3AM", "4AM", "5AM", "6AM", "7AM", "8AM", "9AM", "10AM", "11AM", "12PM", "1PM", "2PM", "3PM", "4PM", "5PM", "6PM", "7PM", "8PM", "9PM", "10PM", "11PM")
+
+#Get the model paths
+feglm_model_paths <- list.files("/Volumes/Seagate Portable Drive/5.modeling_data/FeglmModels", full.names = TRUE)
+
+#Split the data into chunks
+chunk_indices <- split(1:nrow(data), cut(1:nrow(data), 12))
+
+#Set up the cluster
+core_num <- detectCores() - 1
+cl <- makeCluster(core_num)
+registerDoParallel(cl)
+
+feglm_predictions <- data.frame()
+
+feglm_predictions <- foreach(hour = times, .combine = "cbind") %dopar% {
+  #Let's get the model
+  feglm_model_path <- grep(hour, feglm_model_paths, value = TRUE)
+  feglm_model <- load(feglm_model_path)
+  
+  #Now we will loop through the chunk indices
+  predictions <- data.frame()
+  
+  for(chunk in chunk_indices){
+    #Read the data into the correct dataframe name
+    hour2 <- data[chunk, ]
+    
+    hour2$doy <- NA
+    #Predict the data 
+    chunk_predictions <- data.frame(predict(get(feglm_model), newdata = hour2))
+    
+    #Add the predictions to the predictions data frame
+    predictions <- rbind(predictions, chunk_predictions)
+  }
+  
+  #Now that we have predicted the data frames, we will now rename it and then return it to be cbinded to the other predictions
+  names(predictions) <- hour
+  return(predictions)
+}
+
+stopCluster(cl)
+```
+
+
+
+
+
+
+
+

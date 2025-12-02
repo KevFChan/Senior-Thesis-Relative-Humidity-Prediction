@@ -1,0 +1,216 @@
+---
+title: "RF_With_Added_Data"
+output: html_document
+date: "2024-11-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+The goal of this Rmd file is to use the new weather station data with the PSW and color band data added in in our random forest models. We will train these models to predict the daily minimum and maximum relative humidity values. 
+```{r}
+#Import the packages
+library(randomForest)
+library(dplyr)
+library(dismo)
+library(doParallel)
+library(foreach)
+```
+
+
+Let's load in the data and then get rid of the columns that aren't valuable
+```{r}
+rf_data <- readRDS("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/RF_Station_Data_PSW_Color_Band.rds")
+
+rf_data <- subset(rf_data, select = -c(MOD_Day_lst, MOD_Night_lst, MYD_Day_lst, MYD_Night_lst))
+
+#We need a way to deal with the NAs in our newly added variables, let's do NA roughfix on the variables we recently added
+rf_data[, 33:ncol(rf_data)] <- na.roughfix(rf_data[, 33:ncol(rf_data)])
+
+#Now we filter out the NAs. Left with 18,870 rows from 18892
+rf_data <- rf_data %>%
+  filter(complete.cases(.))
+
+#nrow(rf_data)
+#We currently have 18892 rows, let's try na.omit and see how many rows we have left -> We have 1466 rows left
+#summary(rf_data)
+
+#rf_data[complete.cases(rf_data),]
+```
+
+
+Now we create the functions we will use to calculate metrics
+```{r}
+#RMSE
+RMSE <- function(observed, predicted) {
+  return(sqrt(mean((observed - predicted)^2, na.rm = TRUE)))
+}
+
+#Create the corss validation function for spatial and temporal R-squared
+SpatialTemporal_CV_maxRH <- function(testdata, model){
+  
+  #We first want to get the prediction values
+  testdata$predictMaxRHs <- predict(model, newdata = testdata, allow.new.levels = TRUE)
+  
+  #Part B
+  #Calculate the temporal R2 by regressing delta min RH against Delta predicted min RH
+  #Delta min RH is the difference between the actual min RH in place i at time j and the annual mean min RH at that location
+  annual_obs_maxRHmean <- aggregate(testdata$MaxRelHumid, by = list(testdata$grid.id, testdata$year),
+                                    FUN = function(x){mean(x, na.rm = TRUE)})
+  names(annual_obs_maxRHmean) <- c("grid.id", "year", "Annual_Obs_MaxRHMean")
+  
+  #We now want to attach the minRHmean to our data frame, but note that just using merge reorders our data
+  #We essentially want every row in the original dataframe to have its own relative humidity mean for that year
+  testdata.merge <- merge(testdata, annual_obs_maxRHmean, by = c("grid.id", "year"), all = TRUE, sort = FALSE)
+  testdata.merge$Delta.maxRH <- testdata.merge$MaxRelHumid - testdata.merge$Annual_Obs_MaxRHMean
+  
+  #Calculate the delta predicted
+  annual_predict_maxRH <- aggregate(testdata.merge$predictMaxRHs, by = list(testdata.merge$grid.id, testdata.merge$year), 
+                                    FUN = function(x){mean(x, na.rm = TRUE)})
+  names(annual_predict_maxRH) <- c("grid.id", "year", "Annual_Predict_MaxRHMean")
+  #Now we want to attach and merge
+  Temporal.vdata <- merge(testdata.merge, annual_predict_maxRH, by = c("grid.id", "year"), all = TRUE, sort = FALSE)
+  Temporal.vdata$Delta.maxRHpredict <- Temporal.vdata$predictMaxRHs - Temporal.vdata$Annual_Predict_MaxRHMean
+  
+  #Part C
+  #Now we perform the linear regression to get the temporal R2
+  Temporal.vmodel <- lm(Delta.maxRH ~ Delta.maxRHpredict, data = Temporal.vdata)
+  Temporal.vR2 <- summary(Temporal.vmodel)$r.squared
+  
+  #Get the RMSE
+  Temporal.RMSE <- RMSE(Temporal.vdata$Delta.maxRH, Temporal.vdata$Delta.maxRHpredict)
+  
+  
+  #Now we get the spatial statistics
+  #Merge the Annual Observations and the Annual Predict
+  Spatial.vdata <- merge(annual_obs_maxRHmean, annual_predict_maxRH, by = c("grid.id", "year"), all = TRUE)
+  
+  Spatial.vmodel <- lm(Annual_Obs_MaxRHMean ~ Annual_Predict_MaxRHMean, data = Spatial.vdata)
+  Spatial.vR2 <- summary(Spatial.vmodel)$r.squared
+  
+  Spatial.RMSE <- RMSE(Spatial.vdata$Annual_Obs_MaxRHMean, Spatial.vdata$Annual_Predict_MaxRHMean)
+  
+  
+  #Obtain the total statistics
+  Total.vmodel <- lm(MaxRelHumid ~ predictMaxRHs, data = Temporal.vdata)
+  Total.vR2 <- summary(Total.vmodel)$r.squared
+  #RMSE
+  Total.RMSE <- RMSE(Temporal.vdata$MaxRelHumid, Temporal.vdata$predictMaxRHs)
+  
+  #Return the results
+  result <- data.frame(R2.total = Total.vR2, R2.spatial = Spatial.vR2, R2.temporal = Temporal.vR2,
+                      RMSE.total = Total.RMSE, RMSE.spatial = Spatial.RMSE, RMSE.temporal = Temporal.RMSE)
+  return(result)
+}
+
+```
+
+
+Try omitting the year 2023 and converting the date into a factor
+```{r}
+rf_data <- rf_data[rf_data$year != 2023, ]
+rf_data$date.f <- as.factor(rf_data$date)
+rf_data$rf.prediction <- NULL
+
+#Scramble the data frame
+data.cv <- rf_data[sample(nrow(rf_data)),]
+
+#Calculate summary statistics
+summary(rf_data)
+```
+
+Now perform 10-fold cross validation
+```{r}
+nfold <- 10
+station.f <- as.character(unique(data.cv$STATION))
+k <- kfold(station.f, 10)
+
+nrow(data.cv[which(data.cv$STATION %in% station.f[k==1]), ])
+cv_data <- data.frame()
+
+#Create a data frame to hold all of the cross validationr results
+CV.rf <- matrix(rep(NA, nfold*6), ncol = 6)
+colnames(CV.rf) <- c("R2.total", "R2.spatial", "R2.temporal", "RMSE.total", "RMSE.spatial", "RMSE.temporal")
+CV.rf <- data.frame(CV.rf)
+```
+
+We can try two methods. One is modeling with all of the missing values and dealing with them using NA imputation and another is straight up just using the na.omitted data. We will test both and see which one has better performance. Let us use the first method and we will probably go with this method since the second one would leave us with 1466 rows and divided by the 10 weather stations, we would only have 146/147 rows per weather station
+```{r}
+#Now let's perform the random forest modeling using parallel processing
+cores <- detectCores() - 1
+cl <- makeCluster(cores)
+registerDoParallel(cl)
+
+#Item is the validation set we are using
+CV.rf <- foreach(item = 1:nfold, .combine = rbind) %dopar% {
+  folds <- seq(1, nfold)
+  folds <- folds[-item]
+  
+  #Get the training and the testing set
+  data.validation <- data.cv[which(data.cv$STATION %in% station.f[k == item]), ]
+  data.train <- data.cv[which(data.cv$STATION %in% station.f[k != item]), ]
+  
+  #Whoa, percent of variance explained is 74.46% and mean of squared residuals is 37.12582
+  rf_model <- randomForest::randomForest(MaxRelHumid ~ MOD_day_forRF + MOD_night_forRF + MYD_day_forRF + MYD_night_forRF + ndvi + LUC_veg + LUC_water + LUC_urban + LUC_barren + LUC_snow + elevation + lon + lat + doy + year + prcp_avg + prcp_max + prcp_min + srad_avg + srad_min + srad_max +sraddown_avg + sraddown_max + sraddown_min + uwind_avg + uwind_max + uwind_min + vwind_avg + vwind_max + vwind_min + b01 + b03 + b04, data = data.train, importance = TRUE, na.action = na.omit)
+  
+  #Prediction step
+  rf_prediction <- predict(rf_model, newdata = data.validation, allow.new.levels = TRUE)
+  
+  #Attach the prediction to data.validation or use the data that has been left out
+  data.validation$Max_RH_prediction <- rf_prediction
+  
+  #Now we run the metrics
+  return(SpatialTemporal_CV_maxRH(testdata = data.validation, model = rf_model))
+  
+}
+
+stopCluster(cl)
+
+colMeans(CV.rf)
+```
+
+
+Now let's get the full random forests model
+```{r}
+rf_max_model <- randomForest::randomForest(MaxRelHumid ~ MOD_day_forRF + MOD_night_forRF + MYD_day_forRF + MYD_night_forRF + ndvi + LUC_veg + LUC_water + LUC_urban + LUC_barren + LUC_snow + elevation + lon + lat + doy + year + prcp_avg + prcp_max + prcp_min + srad_avg + srad_min + srad_max +sraddown_avg + sraddown_max + sraddown_min + uwind_avg + uwind_max + uwind_min + vwind_avg + vwind_max + vwind_min + b01 + b03 + b04, data = rf_data, importance = TRUE, na.action = na.omit)
+
+#And obtain the predictions to generate a new column
+rf_max_prediction <- predict(rf_max_model, newdata = rf_data, allow.new.levels = TRUE)
+rf_data$Max_RH_Predicted <- rf_max_prediction
+
+cor(rf_data$MaxRelHumid, rf_data$Max_RH_Predicted)^2
+sqrt(mean((rf_data$MaxRelHumid - rf_data$Max_RH_Predicted)^2))
+
+```
+
+
+Do the same for daily minimum relative humidity
+```{r}
+rf_min_model <- randomForest::randomForest(MinRelHumid ~ MOD_day_forRF + MOD_night_forRF + MYD_day_forRF + MYD_night_forRF + ndvi + LUC_veg + LUC_water + LUC_urban + LUC_barren + LUC_snow + elevation + lon + lat + doy + year + prcp_avg + prcp_max + prcp_min + srad_avg + srad_min + srad_max +sraddown_avg + sraddown_max + sraddown_min + uwind_avg + uwind_max + uwind_min + vwind_avg + vwind_max + vwind_min + b01 + b03 + b04, data = rf_data, importance = TRUE, na.action = na.omit)
+
+#Get the predictions to generate a new column
+rf_min_prediction <- predict(rf_min_model, newdata = rf_data, allow.new.levels = TRUE)
+rf_data$Min_RH_Predicted <- rf_min_prediction
+
+cor(rf_data$MinRelHumid, rf_data$Min_RH_Predicted)^2
+sqrt(mean((rf_data$MinRelHumid - rf_data$Min_RH_Predicted)^2))
+```
+
+Now we save the predicted data based on the variables above with PSW and color band data included. Let's also save the models here
+```{r}
+#saveRDS(rf_data, "/Volumes/Seagate Portable Drive/5.modeling_data/5.2.RF_data_with_PSW_Color.rds")
+
+#Save the two models
+save(rf_max_model, file = "/Volumes/Seagate Portable Drive/5.modeling_data/RH_Daily_Max_Random_Forest_Model.rds")
+save(rf_min_model, file = "/Volumes/Seagate Portable Drive/5.modeling_data/RH_Daily_Min_Random_Forest_Model.rds")
+```
+
+
+
+
+
+
+
+

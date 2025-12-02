@@ -1,0 +1,380 @@
+---
+title: "HourlyModelApplicationForFeglm"
+output: html_document
+date: "2024-04-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(fixest)
+library(tidyr)
+library(stringr)
+```
+
+We will use this notebook to apply the hourly models
+```{r}
+#We first load in the dataset with the predictions from the random forests
+input_data <- readRDS("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/Outdated_Data/RFData_WithPredictions.rds")
+```
+
+Let's get the similarity scores for fun
+```{r}
+RMSE <- function(observed, predicted){
+  return(sqrt(mean((observed - predicted)^2, na.rm = TRUE)))
+}
+
+cor(input_data$MaxRelHumid, input_data$Predict_Max)
+cor(input_data$MinRelHumid, input_data$Predict_Min)
+
+RMSE(input_data$MaxRelHumid, input_data$Predict_Max)
+RMSE(input_data$MinRelHumid, input_data$Predict_Min)
+```
+
+Let's convert doy, era.id, and year into categorical factors
+```{r}
+input_data$doy <- as.factor(input_data$doy)
+input_data$year <- as.factor(input_data$year)
+input_data$era.id <- as.factor(input_data$era.id)
+input_data$date.f <- as.Date(input_data$date.f, "%Y-%m-%d")
+```
+
+We can get rid of the variables that won't be put into the model. We don't want MOD data, month, ndvi, land use, elevation, temperature, or dewpoint data.
+```{r}
+names(input_data)
+input_data <- input_data[, -c(9:20, 23:26)]
+```
+
+Let's rename the dataframe so that we can plug it into our models
+```{r}
+names(input_data) <- c("STATION", "Date", "grid.id", "year", "doy", "x", "y", "era.id", "lon", "lat", "ObsMaxRH", "ObsMinRH", "date.f", "maxRH", "minRH")
+```
+
+We have checked that the values are indeed equal so we can delete the date.f
+```{r}
+sum(input_data$Date == input_data$date.f)
+input_data <- input_data[, -13]
+```
+
+
+Now we load in a model. So in order to use this model, we need to pass the input data to have the same name as the data we initially used
+```{r}
+hour1 <- input_data
+hour2 <- input_data
+```
+
+```{r}
+model_12AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_12AM.Rdata")
+predictions_12AM <- predict(get(model_12AM), newdata = hour2)
+```
+
+```{r}
+model_1AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_1AM.Rdata")
+predictions_1AM <- predict(get(model_1AM), newdata = hour1)
+```
+
+```{r}
+model_2AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_2AM.Rdata")
+predictions_2AM <- predict(get(model_2AM), newdata = hour2)
+```
+
+```{r}
+model_3AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_3AM.Rdata")
+predictions_3AM <- predict(get(model_3AM), newdata = hour1)
+```
+
+```{r}
+model_4AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_4AM.Rdata")
+predictions_4AM <- predict(get(model_4AM), newdata = hour2)
+```
+
+```{r}
+model_5AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_5AM.Rdata")
+predictions_5AM <- predict(get(model_5AM), newdata = hour1)
+```
+
+```{r}
+model_6AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_6AM.Rdata")
+predictions_6AM <- predict(get(model_6AM), newdata = hour2)
+```
+
+```{r}
+model_7AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_7AM.Rdata")
+predictions_7AM <- predict(get(model_7AM), newdata = hour1)
+```
+
+```{r}
+model_8AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_8AM.Rdata")
+predictions_8AM <- predict(get(model_8AM), newdata = hour2)
+```
+
+```{r}
+model_9AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_9AM.Rdata")
+predictions_9AM <- predict(get(model_9AM), newdata = hour1)
+```
+
+```{r}
+model_10AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_10AM.Rdata")
+predictions_10AM <- predict(get(model_10AM), newdata = hour2)
+```
+
+```{r}
+model_11AM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_11AM.Rdata")
+predictions_11AM <- predict(get(model_11AM), newdata = hour1)
+```
+
+```{r}
+model_12PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_12PM.Rdata")
+predictions_12PM <- predict(get(model_12PM), newdata = hour2)
+```
+
+```{r}
+model_1PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_1PM.Rdata")
+predictions_1PM <- predict(get(model_1PM), newdata = hour1)
+```
+
+```{r}
+model_2PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_2PM.Rdata")
+predictions_2PM <- predict(get(model_2PM), newdata = hour2)
+```
+
+```{r}
+model_3PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_3PM.Rdata")
+predictions_3PM <- predict(get(model_3PM), newdata = hour1)
+```
+
+```{r}
+model_4PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_4PM.Rdata")
+predictions_4PM <- predict(get(model_4PM), newdata = hour2)
+```
+
+```{r}
+model_5PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_5PM.Rdata")
+predictions_5PM <- predict(get(model_5PM), newdata = hour1)
+```
+
+```{r}
+model_6PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_6PM.Rdata")
+predictions_6PM <- predict(get(model_6PM), newdata = hour2)
+```
+
+```{r}
+model_7PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_7PM.Rdata")
+predictions_7PM <- predict(get(model_7PM), newdata = hour1)
+```
+
+```{r}
+model_8PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_8PM.Rdata")
+predictions_8PM <- predict(get(model_8PM), newdata = hour2)
+```
+
+```{r}
+model_9PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_9PM.Rdata")
+predictions_9PM <- predict(get(model_9PM), newdata = hour1)
+```
+
+```{r}
+model_10PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_10PM.Rdata")
+predictions_10PM <- predict(get(model_10PM), newdata = hour2)
+```
+
+```{r}
+model_11PM <- load("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/5.modeling_data/FeglmModels/feglmModel_11PM.Rdata")
+predictions_11PM <- predict(get(model_11PM), newdata = hour1)
+```
+
+Let's combine all of the predictions through cbind
+```{r}
+predict_data <- cbind(input_data, predictions_12AM, predictions_1AM, predictions_2AM, predictions_3AM, predictions_4AM, predictions_5AM, predictions_6AM, predictions_7AM, predictions_8AM, predictions_9AM, predictions_10AM, predictions_11AM, predictions_12PM, predictions_1PM, predictions_2PM, predictions_3PM, predictions_4PM, predictions_5PM, predictions_6PM, predictions_7PM, predictions_8PM, predictions_9PM, predictions_10PM, predictions_11PM)
+```
+
+Let's pivot the prediction columns
+```{r}
+predicted_pivot <- pivot_longer(predict_data, 
+                                cols = starts_with("predictions_"),
+                                names_to = "Hour",
+                                names_prefix = "predictions_",
+                                values_to = "Prediction")
+#Turn the hour into a factor
+predicted_pivot$Hour <- as.factor(predicted_pivot$Hour)
+
+#We can relevel 
+predicted_pivot$Hour <- factor(predicted_pivot$Hour, levels = c("12AM", "1AM", "2AM", "3AM", "4AM", "5AM", "6AM", "7AM", "8AM", "9AM", "10AM", "11AM", "12PM",
+                "1PM", "2PM", "3PM", "4PM", "5PM", "6PM", "7PM", "8PM", "9PM", "10PM", "11PM"))
+
+#Now we can relabel the factors
+levels(predicted_pivot$Hour) <- c(0:23)
+```
+
+```{r}
+data <- read.csv("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/Weather_Station_Data_Cleaning_Code/WeatherStationData.csv")
+unique(data$HourlyRelativeHumidity)
+```
+
+
+Now we have the data in the format we want it to be. Let's load in the weather station data and merge them. We do need to perform some preprocessing on this though
+```{r}
+weather_stats <- read.csv("/Volumes/Seagate Portable Drive/Relative_Humidity_Project/Weather_Station_Data_Cleaning_Code/WeatherStationData.csv")
+```
+
+We need to split the Date into date and time
+```{r}
+split_datetime <- str_split(weather_stats$DATE, "T")
+weather_stats$DATE <- sapply(split_datetime, function(x) x[1])
+weather_stats$DATE <- as.Date(weather_stats$DATE, "%Y-%m-%d")
+
+weather_stats$Hour <- sapply(split_datetime, function(x) as.numeric(sub("^(\\d{2}).*", "\\1", x[2])))
+#Factorize the hour
+weather_stats$Hour <- as.factor(weather_stats$Hour)
+
+names(weather_stats)
+names(predicted_pivot)
+```
+
+We now want to merge, let's do so on station, date, and then hour
+```{r}
+final_frame <- merge(predicted_pivot, weather_stats, by.x = c("STATION", "Date", "Hour"), by.y = c("STATION", "DATE", "Hour"), all.x = TRUE)
+final_frame <- final_frame[!is.na(final_frame$HourlyRelativeHumidity),]
+nrow(final_frame)
+
+unique(weather_stats$Hour)
+```
+
+```{r}
+#Convert the Hourly Relative Humidity into a numeric, but before that we need to get rid of instances with "" or "*"
+final_frame <- final_frame[!final_frame$HourlyRelativeHumidity %in% c("", "*"), ]
+nrow(final_frame)
+
+final_frame$HourlyRelativeHumidity <- as.numeric(final_frame$HourlyRelativeHumidity)
+unique(final_frame$HourlyRelativeHumidity)
+```
+
+The moment of truth
+```{r}
+cor(final_frame$Prediction, final_frame$HourlyRelativeHumidity)
+RMSE(final_frame$Prediction, final_frame$HourlyRelativeHumidity)
+```
+
+
+Let's create a plot of observed vs. predicted points
+```{r}
+library(ggplot2)
+# library(pubtheme)
+```
+
+
+```{r}
+stations <- unique(final_frame$STATION)
+station1 <- final_frame[final_frame$STATION == stations[1], ]
+```
+
+
+```{r}
+g <- ggplot(final_frame, 
+            aes(x = HourlyRelativeHumidity, y = Prediction)) +
+  geom_point(size = 0.3) + 
+  geom_abline(intercept = 0, slope = 1, color = "black", linetype = "dashed") +
+  labs(title = "Observed Hourly Relative Humidity vs. Predictions",
+       x = "Hourly Relative Humidity",
+       y = "Predicted Hourly Relative Humidity") +
+  scale_x_continuous(limits = c(0,100),
+                     breaks = c(0, 20, 40, 60, 80, 100)) +
+  scale_y_continuous(limits = c(0,100),
+                     breaks = c(0, 20, 40, 60, 80, 100)) +
+  theme_pub(type = "scatter")
+
+print(g)
+```
+
+
+
+
+```{r}
+SpatialTemporal_CV_RH <- function(data){
+  #Part B
+  #Calculate the temporal R2 by regressing delta min RH against Delta predicted min RH
+  #Delta min RH is the difference between the actual min RH in place i at time j and the annual mean min RH at that location
+  annual_obs_RHmean <- aggregate(data$HourlyRelativeHumidity, by = list(data$grid.id, data$year),
+                                    FUN = function(x){mean(x, na.rm = TRUE)})
+  names(annual_obs_RHmean) <- c("grid.id", "year", "Annual_Obs_RHMean")
+  
+  #We now want to attach the minRHmean to our data frame, but note that just using merge reorders our data
+  #We essentially want every row in the original dataframe to have its own relative humidity mean for that year
+  data.merge <- merge(data, annual_obs_RHmean, by = c("grid.id", "year"), all = TRUE, sort = FALSE)
+  data.merge$Delta.RH <- data.merge$HourlyRelativeHumidity - data.merge$Annual_Obs_RHMean
+  
+  #Calculate the delta predicted
+  annual_predict_meanRH <- aggregate(data.merge$Prediction, by = list(data.merge$grid.id, data.merge$year), 
+                                    FUN = function(x){mean(x, na.rm = TRUE)})
+  names(annual_predict_meanRH) <- c("grid.id", "year", "Annual_Predict_RHMean")
+  #Now we want to attach and merge
+  Temporal.vdata <- merge(data.merge, annual_predict_meanRH, by = c("grid.id", "year"), all = TRUE, sort = FALSE)
+  Temporal.vdata$Delta.RHpredict <- Temporal.vdata$Prediction - Temporal.vdata$Annual_Predict_RHMean
+  
+  #Part C
+  #Now we perform the linear regression to get the temporal R2
+  Temporal.vmodel <- lm(Delta.RH ~ Delta.RHpredict, data = Temporal.vdata)
+  Temporal.vR2 <- summary(Temporal.vmodel)$r.squared
+  #Temporal.vR2 <- cor(Temporal.vdata$Delta.RH, Temporal.vdata$Delta.RHpredict)
+  
+  #Get the RMSE
+  Temporal.RMSE <- RMSE(Temporal.vdata$Delta.RH, Temporal.vdata$Delta.RHpredict)
+  
+  
+  #Now we get the spatial statistics
+  #Merge the Annual Observations and the Annual Predict
+  Spatial.vdata <- merge(annual_obs_RHmean, annual_predict_meanRH, by = c("grid.id", "year"), all = TRUE)
+  
+  Spatial.vmodel <- lm(Annual_Obs_RHMean ~ Annual_Predict_RHMean, data = Spatial.vdata)
+  Spatial.vR2 <- summary(Spatial.vmodel)$r.squared
+  #Spatial.vR2 <- cor(Spatial.vdata$Annual_Obs_RHMean, Spatial.vdata$Annual_Predict_RHMean)
+  
+  Spatial.RMSE <- RMSE(Spatial.vdata$Annual_Obs_RHMean, Spatial.vdata$Annual_Predict_RHMean)
+  
+  
+  #Obtain the total statistics
+  Total.vmodel <- lm(HourlyRelativeHumidity ~ Prediction, data = Temporal.vdata)
+  Total.vR2 <- summary(Total.vmodel)$r.squared
+  #RMSE
+  Total.RMSE <- RMSE(Temporal.vdata$HourlyRelativeHumidity, Temporal.vdata$Prediction)
+  
+  #Return the results
+  result <- data.frame(R2.total = Total.vR2, R2.spatial = Spatial.vR2, R2.temporal = Temporal.vR2,
+                      RMSE.total = Total.RMSE, RMSE.spatial = Spatial.RMSE, RMSE.temporal = Temporal.RMSE)
+  return(result)
+}
+
+SpatialTemporal_CV_RH(final_frame)
+```
+
+
+```{r}
+(Total.vmodel <- lm(HourlyRelativeHumidity ~ Prediction, data = final_frame))
+(Total.vR2 <- summary(Total.vmodel)$r.squared)
+
+```
+
+```{r}
+final_frame <- final_frame %>%
+  distinct()
+summary(final_frame$HourlyRelativeHumidity)
+sd(final_frame$HourlyRelativeHumidity)
+```
+
+
+Let's split the figures into day and night
+```{r}
+night_frame <- final_frame[final_frame$Hour %in% c("20", "21", "22", "23", "0", "1", "2", "3", "4", "5", "6", "7", "8"),]
+
+day_frame <- final_frame[final_frame$Hour %in% c("8", "9", "10", "11", "12","13", "14", "15", "16", "17", "18", "19", "20"),]
+
+summary(day_frame$HourlyRelativeHumidity)
+sd(day_frame$HourlyRelativeHumidity)
+
+summary(night_frame$HourlyRelativeHumidity)
+sd(night_frame$HourlyRelativeHumidity)
+```
+
+
