@@ -1,0 +1,90 @@
+---
+title: "ERA_LME_Modeling"
+output: html_document
+date: "2024-04-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(lme4)
+```
+Load in the satellite data
+```{r}
+era_data <- readRDS("/Volumes/Seagate Portable Drive/ModelingData/FullERADataFrame.RDS")
+```
+
+Let's obtain a subset of the data
+```{r}
+era_data <- head(era_data, 1000000)
+```
+
+We first need to turn year and era.id into factors
+```{r}
+era_data$year <- as.factor(era_data$year)
+era_data$era.id <- as.factor(era_data$era.id)
+```
+
+```{r}
+unique(era_data$doy)
+```
+```{r}
+names(era_data)
+unique(era_data$Hour)
+```
+
+
+We want to create 24 different data sets, one for each hour
+```{r}
+hour0 <- era_data[era_data$Hour == 0, ]
+hour1 <- era_data[era_data$Hour == 1, ]
+hour2 <- era_data[era_data$Hour == 2, ]
+hour3 <- era_data[era_data$Hour == 3, ]
+hour4 <- era_data[era_data$Hour == 4, ]
+hour5 <- era_data[era_data$Hour == 5, ]
+hour6 <- era_data[era_data$Hour == 6, ]
+hour7 <- era_data[era_data$Hour == 7, ]
+hour8 <- era_data[era_data$Hour == 8, ]
+hour9 <- era_data[era_data$Hour == 9, ]
+hour10 <- era_data[era_data$Hour == 10, ]
+hour11 <- era_data[era_data$Hour == 11, ]
+hour12 <- era_data[era_data$Hour == 12, ]
+hour13 <- era_data[era_data$Hour == 13, ]
+hour14 <- era_data[era_data$Hour == 14, ]
+hour15 <- era_data[era_data$Hour == 15, ]
+hour16 <- era_data[era_data$Hour == 16, ]
+hour17 <- era_data[era_data$Hour == 17, ]
+hour18 <- era_data[era_data$Hour == 18, ]
+hour19 <- era_data[era_data$Hour == 19, ]
+hour20 <- era_data[era_data$Hour == 20, ]
+hour21 <- era_data[era_data$Hour == 21, ]
+hour22 <- era_data[era_data$Hour == 22, ]
+hour23 <- era_data[era_data$Hour == 23, ]
+```
+
+
+Try a model
+```{r}
+model <- lmer(RelativeHumidity ~ maxRH + (maxRH|doy) + (maxRH|year) + (maxRH|era.id) +
+                minRH + (minRH|doy) + (minRH|year) + (minRH|era.id), data = era_data)
+```
+
+
+```{r}
+save(model, file = "")
+```
+
+```{r}
+#Now we run the fixed effects model
+fixedEffectsModel = feglm(RelativeHumidity ~ maxRH*doy + maxRH*year + maxRH*era.id + 
+                            minRH*doy + minRH*year + minRH*era.id, data = era_data, family = "gaussian")
+  
+#Now we save this model too
+save(fixedEffectsModel, "/home/kfc27/project/HourlyModelingScripts/fixedEffectsModel.Rdata")
+
+```
+
+
