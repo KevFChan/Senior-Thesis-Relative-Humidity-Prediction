@@ -1,0 +1,59 @@
+---
+title: "FullDataFrameExploration"
+output: html_document
+date: "2024-05-01"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(lme4)
+```
+
+```{r}
+data <- readRDS("/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/ERAData/Step4.5/FullERADataFrame.RDS")
+order_data <- data[order(data$era.id, data$Date, data$Hour), ]
+```
+
+Now we check if all of the dates and hours are available
+```{r}
+attendance <- order_data %>%
+  group_by(era.id) %>%
+  summarise(count = n_distinct(paste(Date, Hour))) %>%
+  mutate(total_combinations = n_distinct(paste(order_data$Date, order_data$Hour))) %>%
+  mutate(available = count == total_combinations)
+```
+
+```{r}
+nrow(attendance)
+sum(attendance$available)
+```
+
+Nice, so all of our data is there. Let's now try modeling. We first need to convert year and era.id into factors
+```{r}
+order_data$year <- as.factor(order_data$year)
+order_data$era.id <- as.factor(order_data$era.id)
+```
+
+Let's subset and run a quick model on hour 0 or 12 AM
+```{r}
+hour0 <- order_data[order_data$Hour == 0, ]
+```
+
+Now run the model
+```{r}
+model <- lmer(RelativeHumidity ~ maxRH + (maxRH|doy) + (maxRH|year) + (maxRH|era.id) +
+                minRH + (minRH|doy) + (minRH|year) + (minRH|era.id), data = hour0)
+```
+
+
+```{r}
+/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/HourlyModelingScripts/Models
+save(model, file = "/Users/kevin/Documents/Classes/Senior_Classes/Senior_Thesis/HourlyModelingScripts/Models/model12AM.Rdata")
+```
+
+
+

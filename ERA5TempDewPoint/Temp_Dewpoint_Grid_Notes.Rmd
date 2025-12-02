@@ -1,0 +1,22 @@
+---
+title: "Testing"
+output: html_document
+date: "2024-04-28"
+---
+
+The purpose of this Rmd file is to understand the naming sturcture that Lingzhi used to match the grids together.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+scaled_station <- readRDS("/Volumes/Seagate Portable Drive/Modeling_Data/3.0.Scaled_Station_predictor_all.rds")
+grid_lonlat <- readRDS("/Volumes/Seagate Portable Drive/Modeling_Data/8.2.ERA_grid_resample_MODIS_grids_withLonLat.rds")
+```
+
+
+As we can see, the last value of x (7th) is the first value of grid.id and the last three values of y (5-7) is the three values after the "_" in grid.id. So we have x_y. With some more thinking, we can conclude that era.id is actually a count that was created by Lingzhi to label the ERA5 grids. So it seems we will need to obtain the grid.id first, use those to merge the era5 data 
+```{r}
+head(grid_lonlat)
+```

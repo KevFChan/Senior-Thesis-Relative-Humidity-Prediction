@@ -1,0 +1,188 @@
+---
+title: "StreamlinedProcess"
+output: html_document
+date: "2024-04-29"
+---
+
+The purpose of this file is to 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+Libraries
+```{r}
+library(raster)
+library(sf)
+library(foreach)
+library(doParallel)
+library(stringr)
+```
+Set the working directory
+```{r}
+setwd("/Volumes/Seagate Portable Drive/0.raw_data")
+```
+
+
+```{r}
+#Get the shapefile and subset on Connecticut
+us_shp <- read_sf("/Volumes/Seagate Portable Drive/0.raw_data/0.tl_2020_us_state/tl_2020_us_state.shp")
+ct_shp <- us_shp[us_shp$NAME == "Connecticut",]
+
+#Get the ERA data
+raster_dir <- "/Volumes/Seagate Portable Drive/0.raw_data/0.3.ERA5"
+pattern_temp <- "temp"
+temp_files <- list.files(path = raster_dir, pattern = pattern_temp, full.names = TRUE)
+raster_file <- temp_files[1]
+raster_data <- raster::brick(raster_file)
+raster_data <- raster::mask(raster_data, mask = ct_shp)
+raster_data <- subset(raster_data, 1:20)
+era_crs <- crs(raster_data)
+
+#We need to load in a sample LST file for resampling
+lst_sample <- "/Volumes/Seagate Portable Drive/0.raw_data/0.2.1.LST_MOD11A1/MOD11A1.061_LST_Day_1km_doy2019028_aid0001.tif"
+lst_raster <- raster::brick(lst_sample)
+```
+
+Let us first extract the longitude and latitude values from the dataset
+```{r}
+eralonlat <- data.frame(raster::coordinates(raster_data))
+eralonlatvalues <- data.frame(raster::getValues(raster_data))
+dim(eralonlatvalues)
+dim(eralonlat)
+```
+
+Let's try converting the coordinates here into sinusoidal coordinates
+```{r}
+erasinu <- st_as_sf(eralonlat, coords = c("x", "y"))
+erasinu <- st_set_crs(erasinu, crs(raster_data))
+erasinu_points <- st_transform(erasinu, crs = crs(lst_raster))
+erasinu_points <- data.frame(st_coordinates(erasinu_points))
+#Let's rename these and cbind them with the points above
+names(erasinu_points) <- c("era.x", "era.y")
+era_coordinates <- cbind(erasinu_points, eralonlat)
+names(era_coordinates) <- c("era.x", "era.y", "lon", "lat")
+```
+
+
+Okay this is nice, but we are still missing half of the table. I think the way we get around this is by getting the coordinates of the LST data, converting it into sinu, rounding the latitudes and longitudes, and then merging the new table with the table above. We will now be working with lst raster
+```{r}
+lst_coords <- data.frame(raster::coordinates(lst_raster))
+lst_sinu <- st_as_sf(lst_coords, coords = c("x", "y"))
+lst_sinu <- st_set_crs(lst_sinu, crs(lst_raster))
+lst_points <- st_transform(lst_sinu, crs = crs(raster_data))
+lst_points <- data.frame(st_coordinates(lst_points))
+
+#Let's rename these and cbind 
+names(lst_points) <- c("lon", "lat")
+lst_coords <- cbind(lst_coords, lst_points)
+
+#let's round the lon and lat columns 
+lst_coords[, c("lon", "lat")] <- round(lst_coords[, c("lon", "lat")],1)
+```
+
+We now want to merge them together
+```{r}
+merged <- merge(lst_coords, era_coordinates, by = c("lon", "lat"))
+summary(merged)
+nrow(merged)
+```
+
+We can merge the grid_ids with the above now since we have longitude and latitude!
+```{r}
+merged_id <- merge(merged, grid_lonlat[,5:9], by = c("lon", "lat"))
+
+#Get the correlations between the era coords
+cor(merged_id$era.x.x, merged_id$era.y.x)
+cor(merged_id$era.y.y, merged_id$era.x.y)
+```
+
+
+
+
+```{r}
+summary(lst_coords)
+summary(era_coordinates)
+```
+
+
+
+Now let's get the coordinates
+```{r}
+era
+```
+
+Pretty sure we need to resample the dataframe first. So to that end, let's convert the CRS to sinusoidal
+```{r}
+#We want to convert the CRS of raster data to sinusoidal
+raster_data <- raster::projectRaster(raster_data, crs = crs(lst_raster))
+```
+
+We now have era.x and era.y
+```{r}
+erasin <- data.frame(raster::coordinates(raster_data))
+erasinvalues <- data.frame(raster::coordinates(raster_data))
+dim(erasin)
+dim(erasinvalues)
+```
+
+Now we should perform resampling
+```{r}
+raster_data <- raster::resample(raster_data, lst_raster, method = "ngb")
+```
+
+Now we get the coordinates for sinusoidal
+```{r}
+lstcoords <- data.frame(raster::coordinates(raster_data))
+lstvalues <- data.frame(raster::getValues(raster_data))
+dim(lstcoords)
+dim(lstvalues)
+```
+
+Now let's try converting the raster back into longitude and latitude
+```{r}
+raster_data <- raster::projectRaster(raster_data, crs = era_crs)
+```
+
+We get the longitude and latitude coordinates and round to 1 decimal place since that seems like what the key does
+```{r}
+resampledLonLat <- data.frame(raster::coordinates(raster_data))
+resampledLonLat <- round(resampledLonLat, 1)
+resampledValues <- data.frame(raster::getValues(raster_data))
+```
+
+
+```{r}
+dim(resampledLonLat)
+dim(resampledValues)
+summary(resampledLonLat)
+```
+
+Okay, let's try to convert the lst coords into the lon lat values with the crs
+```{r}
+lst_points <- st_as_sf(lstcoords, coords = c("x", "y"))
+lst_points <- st_set_crs(lst_points, crs(lst_raster))
+lonlat_points <- st_transform(lst_points, crs = era_crs)
+```
+
+
+Let's get the latitude and longitude
+```{r}
+lonlat_coordinates <- data.frame(st_coordinates(lonlat_points))
+summary(lonlat_coordinates)
+```
+
+
+Let's get the grid key
+```{r}
+grid_lonlat <- readRDS("/Volumes/Seagate Portable Drive/Modeling_Data/8.2.ERA_grid_resample_MODIS_grids_withLonLat.rds")
+summary(grid_lonlat$era.id)
+```
+
+```{r}
+unique_era <- unique(grid_lonlat[, "era.y"])
+length(unique_era)
+```
+
+
+
